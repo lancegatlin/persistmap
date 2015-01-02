@@ -1,8 +1,14 @@
-= org.lancegatlin.persist: Persistent Map
+= Persistent Map
 Lance Gatlin <lance.gatlin@gmail.com>
 v2,02-Jan-2015
 :blogpost-status: unpublished
 :blogpost-categories: scala
+
+*UNDER CONSTRUCTION*
+
+A partially persistent Map (http://en.wikipedia.org/wiki/Persistent_data_structure)
+that reifies time. The past may be queried by changes may only be made "now" or
+in the "future".
 
 .Example
 ----
