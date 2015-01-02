@@ -1,0 +1,58 @@
+= org.lancegatlin.persist: Persistent Map
+Lance Gatlin <lance.gatlin@gmail.com>
+v2,02-Jan-2015
+:blogpost-status: unpublished
+:blogpost-categories: scala
+
+.Example
+----
+Welcome to Scala version 2.11.1 (Java HotSpot(TM) 64-Bit Server VM, Java 1.7.0_72).
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> :load consoleImports
+Loading consoleImports...
+import org.joda.time._
+import scala.concurrent._
+import s_mach.concurrent._
+import org.lancegatlin.persist._
+import scala.concurrent.ExecutionContext.Implicits.global
+m: org.lancegatlin.persist.Metadata = Metadata(me,None,2015-01-02T21:33:58.373Z)
+p: org.lancegatlin.persist.PersistentMemoryMap[Int,String,Option[String]] = org.lancegatlin.persist.PersistentMemoryMap@4579d397
+t1: org.joda.time.Instant = 2015-01-02T21:33:59.158Z
+
+scala> p.now.find(1).get
+res0: Option[String] = Some(a)
+
+scala> p.now.replace(1,"aa").get
+res1: Boolean = true
+
+scala> p.now.find(1).get
+res2: Option[String] = Some(aa)
+
+scala> p.old(t1).find(1).get
+res3: Option[String] = Some(a)
+
+scala> val t2 = Instant.now()
+t2: org.joda.time.Instant = 2015-01-02T21:34:53.754Z
+
+scala> p.now.put(3,"c").get
+res4: Boolean = true
+
+scala> p.old(t2).find(3).get
+res5: Option[String] = None
+
+scala> p.now.find(3).get
+res6: Option[String] = Some(c)
+
+scala> p.now.deactivate(1).get
+res7: Boolean = true
+
+scala> p.now.find(1).get
+res8: Option[String] = None
+
+scala> p.old(t2).find(1).get
+res9: Option[String] = Some(aa)
+
+scala>
+----
