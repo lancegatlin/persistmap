@@ -13,6 +13,9 @@ that reifies time. The past may be queried but changes may only be made to "now"
 
 * Full record of changes can be retrieved per item
 * Changes are stored as an event stream
+* Writing to "now" is non-transactional but thread-safe
+* Writing to "future" is transactional using optimistic write model similar to
+STM
 
 .Example
 ----
