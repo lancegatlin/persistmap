@@ -6,9 +6,13 @@ v2,02-Jan-2015
 
 *UNDER CONSTRUCTION*
 
-A partially persistent(http://en.wikipedia.org/wiki/Persistent_data_structure)
-and thread-safe Map that reifies time. The past may be queried but changes may
-only be made to "now" or in the "future".
+An experimental partially persistent
+(http://en.wikipedia.org/wiki/Persistent_data_structure) and thread-safe Map
+that reifies time. The past may be queried but changes may only be made to "now"
+ or in the "future".
+
+* Full record of changes can be retrieved per item
+* Changes are stored as an event stream
 
 .Example
 ----
