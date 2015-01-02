@@ -6,9 +6,9 @@ v2,02-Jan-2015
 
 *UNDER CONSTRUCTION*
 
-A partially persistent Map (http://en.wikipedia.org/wiki/Persistent_data_structure)
-that reifies time. The past may be queried but changes may only be made to "now"
-or in the "future".
+A partially persistent(http://en.wikipedia.org/wiki/Persistent_data_structure)
+and thread-safe Map that reifies time. The past may be queried but changes may
+only be made to "now" or in the "future".
 
 .Example
 ----
@@ -27,38 +27,41 @@ m: org.lancegatlin.persist.Metadata = Metadata(me,None,2015-01-02T21:33:58.373Z)
 p: org.lancegatlin.persist.PersistentMemoryMap[Int,String,Option[String]] = org.lancegatlin.persist.PersistentMemoryMap@4579d397
 t1: org.joda.time.Instant = 2015-01-02T21:33:59.158Z
 
+scala> p.now.toMap.get
+res0: Map[Int,String] = Map(1 -> a, 2 -> b)
+
 scala> p.now.find(1).get
-res0: Option[String] = Some(a)
+res1: Option[String] = Some(a)
 
 scala> p.now.replace(1,"aa").get
-res1: Boolean = true
+res2: Boolean = true
 
 scala> p.now.find(1).get
-res2: Option[String] = Some(aa)
+res3: Option[String] = Some(aa)
 
 scala> p.old(t1).find(1).get
-res3: Option[String] = Some(a)
+res4: Option[String] = Some(a)
 
 scala> val t2 = Instant.now()
 t2: org.joda.time.Instant = 2015-01-02T21:34:53.754Z
 
 scala> p.now.put(3,"c").get
-res4: Boolean = true
+res5: Boolean = true
 
 scala> p.old(t2).find(3).get
-res5: Option[String] = None
+res6: Option[String] = None
 
 scala> p.now.find(3).get
-res6: Option[String] = Some(c)
+res7: Option[String] = Some(c)
 
 scala> p.now.deactivate(1).get
-res7: Boolean = true
+res8: Boolean = true
 
 scala> p.now.find(1).get
-res8: Option[String] = None
+res9: Option[String] = None
 
 scala> p.old(t2).find(1).get
-res9: Option[String] = Some(aa)
+res10: Option[String] = Some(aa)
 
 scala>
 ----
