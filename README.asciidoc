@@ -63,5 +63,14 @@ res9: Option[String] = None
 scala> p.old(t2).find(1).get
 res10: Option[String] = Some(aa)
 
+scala> p.now.toMap.get
+res11: Map[Int,String] = Map(2 -> b,3 -> c)
+
+scala> p.old(t2).toMap.get
+res12: Map[Int,String] = Map(1 -> aa, 2 -> b)
+
+scala> p.old(t1).toMap.get
+res13: Map[Int,String] = Map(1 -> a, 2 -> b)
+
 scala>
 ----
