@@ -180,5 +180,5 @@ scala> p.now.merge(p2).get
 res6: Boolean = true
 
 scala> p.now.toMap.get
-res7: Map[Int,String] = Map(2 -> b, 4 -> d, 1 -> a, 3 -> c)
+res7: Map[Int,String] = Map(2 -> b, 4 -> d, 1 -> a, 3 -> cc)
 ----
