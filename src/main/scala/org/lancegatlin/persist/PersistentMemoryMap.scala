@@ -65,12 +65,13 @@ class PersistentMemoryMap[ID,A,P](
   def _appendCommits(
     m:ConcurrentSkipListMap[Long,OldStateEx],
     zomCommit: List[(Commit[ID,A,P],Metadata)],
-    _lastState: OldStateEx) : Unit = {
-    var lastState = _lastState
-    zomCommit.foreach { case (commit,metadata) =>
+    _lastState: OldStateEx
+  ) : Unit = {
+    // Note: foldRight for List is reverse.foldLeft =[
+    zomCommit.foldRight(_lastState) { case ((commit,metadata),lastState) =>
       val nextState = LazyOldState(lastState,commit,metadata)
       m.put(metadata.when.getMillis,nextState)
-      lastState = nextState
+      nextState
     }
   }
 
