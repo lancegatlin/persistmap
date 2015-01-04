@@ -108,7 +108,10 @@ trait PersistentMap[ID,A,P] {
       g: Exception => X
     )(implicit metadata:Metadata) : Future[X]
 
-    def replace(id: ID, value: A)(implicit metadata:Metadata) : Future[Boolean] =
+    def replace(
+      id: ID,
+      value: A
+    )(implicit metadata:Metadata) : Future[Boolean] =
       replaceFold(id)(_ => (value,true),_ => false)
 
     def replaceFold[X](id: ID)(
@@ -139,25 +142,26 @@ trait PersistentMap[ID,A,P] {
 
   def now : NowState
 
-  abstract class FutureState extends QueryState {
+  abstract class FutureState {
+    def find(id: ID) : Future[Option[A]]
+
     def deactivate(id: ID) : FutureState
     def reactivate(id: ID) : FutureState
 
     def put(id: ID, value: A) : FutureState
     def replace(id: ID, value: A) : FutureState
 
-    def commit() : Future[Try[OldState]]
+    def commit()(implicit metadata: Metadata) : Future[Boolean]
   }
 
-  def future(expire: Instant)(implicit m:Metadata) : FutureState
-  def future(expire: FiniteDuration)(implicit m:Metadata) : FutureState =
-    future(Instant.now().plus(expire.toMillis.toInt))
+  def future : FutureState
 
-//  def merge(other: PersistentMap[ID,A,P]) : Future[Boolean]
-
-  def atomically(
-    f: (OldState,FutureState) => FutureState
-  ) : Future[Try[OldState]]
-
-  def asMap : Map[ID, A]
+  def atomic(
+    f: FutureState => Future[FutureState]
+  )(implicit metadata: Metadata) : Future[Boolean] = {
+    for {
+      futureState <- f(future)
+      result <- futureState.commit()
+    } yield result
+  }
 }

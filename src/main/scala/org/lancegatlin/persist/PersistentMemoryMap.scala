@@ -37,7 +37,7 @@ object PersistentMemoryMap {
 
 class PersistentMemoryMap[ID,A,P](
   baseState: PersistentMap.BaseState[ID,A] = PersistentMap.BaseState.empty,
-  zomBaseCommit: List[(Metadata, Commit[ID,A,P])],
+  zomBaseCommit: List[(Commit[ID,A,P],Metadata)],
   baseMetadata: Metadata
 )(implicit
   val executionContext: ExecutionContext,
@@ -49,7 +49,7 @@ class PersistentMemoryMap[ID,A,P](
 
   val whenToOldState = {
     val m = new ConcurrentSkipListMap[Long,OldStateEx]()
-    var lastState : OldStateEx = {
+    val lastState = {
       import baseState._
       BaseOldState(
         active = active,
@@ -58,12 +58,20 @@ class PersistentMemoryMap[ID,A,P](
       )
     }
     m.put(baseMetadata.when.getMillis, lastState)
-    zomBaseCommit.foreach { case (metadata,commit) =>
+    _appendCommits(m,zomBaseCommit,lastState)
+    m
+  }
+
+  def _appendCommits(
+    m:ConcurrentSkipListMap[Long,OldStateEx],
+    zomCommit: List[(Commit[ID,A,P],Metadata)],
+    _lastState: OldStateEx) : Unit = {
+    var lastState = _lastState
+    zomCommit.foreach { case (commit,metadata) =>
       val nextState = LazyOldState(lastState,commit,metadata)
       m.put(metadata.when.getMillis,nextState)
       lastState = nextState
     }
-    m
   }
 
   def print : String = {
@@ -225,10 +233,7 @@ class PersistentMemoryMap[ID,A,P](
               // State during computation
               val updatedLastEntry = whenToOldState.lastEntry
               val updatedState = updatedLastEntry.getValue
-              // Check if any of commit's checkouts changed
-              if(commit.checkout.forall { case (id,version) =>
-                updatedState._findRecord(id).exists(_.version == version)
-              }) {
+              if(canCommit(commit, updatedState)) {
                 // If checkouts have not changed then just retry without
                 // recomputing commit
                 innerLoop(updatedLastEntry)
@@ -243,6 +248,13 @@ class PersistentMemoryMap[ID,A,P](
         }
       }
       Future { loop() }
+    }
+
+    def canCommit(commit: Commit[ID,A,P], state: OldStateEx) : Boolean = {
+      // Check if any of commit's checkout verions changed
+      commit.checkout.forall { case (id,version) =>
+        state._findRecord(id).exists(_.version == version)
+      }
     }
 
     override def putFold[X](id: ID)(
@@ -340,13 +352,46 @@ class PersistentMemoryMap[ID,A,P](
     override def mergeFold[X](
       f: OldState => (PersistentMap[ID,A,P],X),
       g: Exception => X
-    )(implicit metadata: Metadata): Future[X] = ???
-//    {
-//      setState { currentState =>
-//        val other = f(currentState)
-//
-//      }
-//    }
+    )(implicit metadata: Metadata): Future[X] = {
+      def loop() : Future[X] = {
+        val lastEntry = whenToOldState.lastEntry
+        val currentState = whenToOldState.lastEntry.getValue
+        val (other, x) = f(currentState)
+        for {
+          zomCommit <- other.zomCommit
+          result <- {
+            if (
+              zomCommit.nonEmpty &&
+              canCommit(zomCommit.head._1, currentState)
+            ) {
+              val isSuccess =
+                whenToOldState.synchronized {
+                  if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
+                    println(s"Appending $zomCommit")
+                    _appendCommits(
+                      whenToOldState,
+                      zomCommit,
+                      currentState
+                    )
+                    true
+                  } else {
+                    false
+                  }
+                }
+              if (isSuccess) {
+                x.future
+              } else {
+                loop()
+              }
+            } else {
+              g(new RuntimeException("Merge conflict")).future
+            }
+
+          }
+        } yield result
+      }
+      loop()
+    }
 
     def currentState = whenToOldState.lastEntry.getValue
     override def count = currentState.count
@@ -359,9 +404,58 @@ class PersistentMemoryMap[ID,A,P](
   
   override def now = NowStateEx
 
-  override def future(when: Instant)(implicit m: Metadata): FutureState = ???
+  case class FutureStateEx(
+    base: OldStateEx
+  ) extends FutureState {
+    val builder = Commit.newBuilder[ID,A,P]
 
-  override def atomically(f: (OldState, FutureState) => FutureState): Future[Try[OldState]] = ???
+    override def put(
+      id: ID,
+      value: A
+    ): FutureState = {
+      builder.put(id,value)
+      this
+    }
 
-  override def asMap: Map[ID, A] = ???
+    override def replace(
+      id: ID,
+      value: A
+    ): FutureState = {
+      val record = base.active(id)
+      val patch = record.value calcDiff value
+      builder.replace(id,record.version,patch)
+      this
+    }
+
+    override def reactivate(
+      id: ID
+    ): FutureState = {
+      val record = base.inactive(id)
+      builder.reactivate(id,record.version)
+      this
+    }
+
+    override def deactivate(
+      id: ID
+    ): FutureState = {
+      builder.deactivate(id, base.active(id).version)
+      this
+    }
+
+    override def find(id: ID) = {
+      val record = base.active(id)
+      builder.checkout(id,record.version)
+      base.find(id)
+    }
+
+    override def commit()(implicit metadata: Metadata): Future[Boolean] = {
+      now.commit(builder.result())
+    }
+  }
+  
+  override def future = FutureStateEx(whenToOldState.lastEntry().getValue)
+
+//  override def atomically(f: (OldState, FutureState) => FutureState): Future[Try[OldState]] = ???
+
+//  override def asMap: Map[ID, A] = ???
 }
