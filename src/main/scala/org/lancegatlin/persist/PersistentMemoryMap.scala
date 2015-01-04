@@ -8,45 +8,62 @@ import s_mach.datadiff._
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 object PersistentMemoryMap {
-  def apply[ID,A,P](kv: (ID,A)*)(implicit
+  import PersistentMap._
+  def apply[ID,A,P](kv:(ID,A)*)(implicit
     ec: ExecutionContext,
     dataDiff:DataDiff[A,P],
-    m: Metadata
-    ) = new PersistentMemoryMap[ID,A,P](m, kv:_*)
+    metadata:Metadata
+    ) : PersistentMemoryMap[ID,A,P] = {
+    val active = kv.map { case (id,value) =>
+      (id,Record(
+        value = value,
+        version = 1
+      ))
+    }.toMap
+    new PersistentMemoryMap[ID,A,P](
+      baseState = BaseState(
+        active = active,
+        inactive = Map.empty
+      ),
+      zomBaseCommit = Nil,
+      baseMetadata = metadata
+    )
+  }
+
 }
 
-class PersistentMemoryMap[ID,A,P](initialMetadata: Metadata, kv: (ID,A)*)(implicit
-  ec: ExecutionContext,
+class PersistentMemoryMap[ID,A,P](
+  baseState: PersistentMap.BaseState[ID,A] = PersistentMap.BaseState.empty,
+  zomBaseCommit: List[(Metadata, Commit[ID,A,P])],
+  baseMetadata: Metadata
+)(implicit
+  val executionContext: ExecutionContext,
   val dataDiff:DataDiff[A,P]
 ) extends
   PersistentMap[ID,A,P] {
-  import org.lancegatlin.persist.PersistentMap._
+  import PersistentMemoryMap._
+  import PersistentMap._
 
-  // TODO: create derived ConcurrentSkipListMap that can perform atomic ops to avoid locking below
   val whenToOldState = {
-    val initial = new java.util.HashMap[Long,_OldState]()
-    val when = Instant.now()
-    val initialState = _OldState(
-      when = when,
-      active = kv.toMap,
-      inactive = Map.empty,
-      oomEvent = kv.map { case (k,v) =>
-        (k,Event.Put[A,P](v,initialMetadata))
-      }.toList
-    )
-    initial.put(when.getMillis,initialState)
-    new ConcurrentSkipListMap[Long,_OldState](initial)
-  }
-
-  val idToRecord : mutable.Map[ID,Record[A,P]] = {
-    mutable.Map(
-      kv.map { case (k,v) =>
-        (k,Record[A,P](v,allInterval,initialMetadata))
-      }:_*
-    )
+    val m = new ConcurrentSkipListMap[Long,OldStateEx]()
+    var lastState : OldStateEx = {
+      import baseState._
+      BaseOldState(
+        active = active,
+        inactive = inactive,
+        metadata = baseMetadata
+      )
+    }
+    m.put(baseMetadata.when.getMillis, lastState)
+    zomBaseCommit.foreach { case (metadata,commit) =>
+      val nextState = LazyOldState(lastState,commit,metadata)
+      m.put(metadata.when.getMillis,nextState)
+      lastState = nextState
+    }
+    m
   }
 
   def print : String = {
@@ -56,25 +73,39 @@ class PersistentMemoryMap[ID,A,P](initialMetadata: Metadata, kv: (ID,A)*)(implic
     whenToOldState.descendingMap().entrySet().asScala.foreach { entry =>
       sb.append(s"${new Instant(entry.getKey)} => ${entry.getValue}\n")
     }
-    sb.append("idToRecord\n")
-    idToRecord.foreach { case (id, record) =>
-      sb.append(s"$id => $record\n")
-    }
     sb.result()
   }
 
-  override def findRecord(id: ID, interval: (Instant,Instant)) : Future[Option[Record[A,P]]] = {
-    idToRecord.get(id).map(_.mkSubRecord(interval))
+
+  override def base: Future[(BaseState[ID,A], Metadata)] = {
+    (baseState,baseMetadata).future
+  }
+
+  override def zomCommit: Future[List[(Commit[ID,A,P], Metadata)]] = {
+    import scala.collection.JavaConverters._
+    whenToOldState
+      .descendingMap()
+      .entrySet.asScala
+      .iterator
+      .flatMap { entry =>
+        entry.getValue match {
+          case l:LazyOldState => Some((l.commit,l.metadata))
+          case _ => None
+        }
+      }
+      .toList
+
   }.future
 
-  case class _OldState(
-    when: Instant,
-    active: Map[ID,A],
-    inactive: Map[ID,A],
-    oomEvent: List[(ID,Event[A,P])]
-  ) extends OldState {
+  trait OldStateEx extends OldState {
+    def metadata: Metadata
+    def active: Map[ID,Record[A]]
+    def inactive: Map[ID,Record[A]]
+
+    def when = metadata.when
+
     override def find(id: ID): Future[Option[A]] =
-      active.get(id).future
+      active.get(id).map(_.value).future
 
     override def count: Future[Count] =
       Count(
@@ -88,9 +119,71 @@ class PersistentMemoryMap[ID,A,P](initialMetadata: Metadata, kv: (ID,A)*)(implic
     override def findInactiveIds: Future[Set[ID]] =
       inactive.keys.toSet.future
 
-    override def toMap: Future[Map[ID, A]] =
-      active.future
+    override def toMap: Future[Map[ID, A]] = {
+      active.mapValues(_.value).future
+    }
+
+    def _findRecord(id: ID) : Option[Record[A]] =
+      active.get(id) orElse inactive.get(id)
+
+    override def checkout(filter: ID => Boolean): Future[PersistentMap[ID, A, P]] = {
+      Future.successful {
+        new PersistentMemoryMap[ID,A,P](
+          baseState = BaseState(
+            active = active.filter(t => filter(t._1)),
+            inactive = inactive.filter(t => filter(t._1))
+          ),
+          zomBaseCommit = Nil,
+          baseMetadata = metadata
+        )
+      }
+    }
   }
+
+  case class LazyOldState(
+    prev: OldStateEx,
+    commit: Commit[ID,A,P],
+    metadata: Metadata
+  ) extends OldStateEx {
+    lazy val active: Map[ID,Record[A]] = {
+      val newActive = mutable.Map[ID,Record[A]](prev.active.toSeq:_*)
+      commit.put.foreach { case (id,value) =>
+        newActive.put(id,Record(
+          value = value,
+          version = 1
+        ))
+      }
+      commit.replace.foreach { case (id,patch) =>
+        val record = newActive(id)
+        val newValue = record.value applyPatch patch
+        newActive.put(id, Record(
+          value = newValue,
+          version = record.version + 1
+        ))
+      }
+      commit.deactivate.foreach(newActive.remove)
+      commit.reactivate.foreach { id =>
+        val record = prev.inactive(id)
+        newActive.put(id, record)
+      }
+      newActive.toMap
+    }
+    lazy val inactive: Map[ID,Record[A]] = {
+      val newInactive = mutable.Map[ID,Record[A]](prev.inactive.toSeq:_*)
+      commit.reactivate.foreach(newInactive.remove)
+      commit.deactivate.foreach { id =>
+        val record = prev.inactive(id)
+        newInactive.put(id, record)
+      }
+      newInactive.toMap
+    }
+  }
+
+  case class BaseOldState(
+    active: Map[ID,Record[A]],
+    inactive: Map[ID,Record[A]],
+    metadata: Metadata
+  ) extends OldStateEx
 
   override def old(when: Instant) = {
     val k = whenToOldState.floorKey(when.getMillis)
@@ -100,150 +193,171 @@ class PersistentMemoryMap[ID,A,P](initialMetadata: Metadata, kv: (ID,A)*)(implic
     }
   }
 
-  def merge(oomEvent: List[(ID,Event[A,P])]) : Unit = {
-    idToRecord.synchronized {
-      // Merge events from newState to idToRecord
-      oomEvent.foreach {
-        case (id,Event.Put(value,metadata)) =>
-          idToRecord.put(id,Record(value,allInterval,metadata))
-        case (id,Event.Replace(patch,metadata)) =>
-          val oldRecord = idToRecord(id)
-          val newRecord = oldRecord.appendReplace(patch,metadata)
-          idToRecord.update(id,newRecord)
-        case (id,Event.Deactivate(metadata)) =>
-          val oldRecord = idToRecord(id)
-          val newRecord = oldRecord.appendDeactivate(metadata)
-          idToRecord.update(id,newRecord)
-        case (id,Event.Reactivate(metadata)) =>
-          val oldRecord = idToRecord(id)
-          val newRecord = oldRecord.appendReactivate(metadata)
-          idToRecord.update(id,newRecord)
-        case (id,Event.Touch(metadata)) =>
-          val oldRecord = idToRecord(id)
-          val newRecord = oldRecord.appendTouch(metadata)
-          idToRecord.update(id,newRecord)
-      }
-    }
-  }
-
-  override def now = {
+  object NowStateEx extends NowState {
     def setState[X](
-      f: (Instant,_OldState) => (_OldState,X)
+      f: OldStateEx => (Commit[ID,A,P],Metadata,X)
     ) : Future[X] = {
       def loop() : X = {
         val lastEntry = whenToOldState.lastEntry
         val nextWhen = Instant.now()
         val currentState = lastEntry.getValue
-        val (newState, x) = f(nextWhen, currentState)
-        if(newState eq currentState) {
+        val (commit, metadata, x) = f(currentState)
+        val updatedMetadata = metadata.copy(when = nextWhen)
+        if(commit.isNoChange) {
           x
         } else {
-          // Note: need synchronized here to ensure no new states are inserted during check-execute below
-          // lock time has been minimized
-          val isSuccess =
-            whenToOldState.synchronized {
-              if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
-                whenToOldState.put(nextWhen.getMillis, newState)
-                merge(newState.oomEvent)
-                true
+          val newState = LazyOldState(currentState,commit,updatedMetadata)
+          def innerLoop(lastEntry: java.util.Map.Entry[Long,OldStateEx]) : X = {
+            // Note: need synchronized here to ensure no new states are inserted
+            // during check-execute below -- lock time has been minimized
+            val isSuccess =
+              whenToOldState.synchronized {
+                if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
+                  whenToOldState.put(nextWhen.getMillis, newState)
+                  true
+                } else {
+                  false
+                }
+              }
+            if(isSuccess) {
+              x
+            } else {
+              // State during computation
+              val updatedLastEntry = whenToOldState.lastEntry
+              val updatedState = updatedLastEntry.getValue
+              // Check if any of commit's checkouts changed
+              if(commit.checkout.forall { case (id,version) =>
+                updatedState._findRecord(id).exists(_.version == version)
+              }) {
+                // If checkouts have not changed then just retry without
+                // recomputing commit
+                innerLoop(updatedLastEntry)
               } else {
-                false
+                // At least one checkout changed, have to recompute commit
+                loop()
               }
             }
-          if(isSuccess) {
-            x
-          } else {
-            loop()
+
           }
+          innerLoop(lastEntry)
         }
       }
       Future { loop() }
     }
 
-
-    new NowState {
-      def currentState = whenToOldState.lastEntry.getValue
-
-      override def count = currentState.count
-
-      override def toMap = currentState.toMap
-
-      override def findActiveIds = currentState.findActiveIds
-
-      override def find(id: ID) = currentState.find(id)
-
-      override def findInactiveIds = currentState.findInactiveIds
-
-      override def put[X](id: ID)(f: OldState => (A,X))(implicit metadata: Metadata): Future[X] = {
-        setState { (when, state) =>
-          val (value,x) = f(state)
-          val newState =
-            state.copy(
-              when = when,
-              active = state.active + ((id,value)),
-              inactive = state.inactive - id,
-              oomEvent = (id,Event.Put[A,P](value,metadata.copy(when=when))) :: Nil
-            )
-          (newState, x)
+    override def putFold[X](id: ID)(
+      f: OldState => (A, X),
+      g: Exception => X
+    )(implicit metadata: Metadata): Future[X] = {
+      setState { currentState =>
+        if(
+          currentState.active.contains(id) == false &&
+          currentState.inactive.contains(id) == false
+        ) {
+          val (value,x) = f(currentState)
+          val commit = Commit.newBuilder
+            .put(id,value)
+            .result()
+          (commit,metadata,x)
+        } else {
+          (Commit.noChange[ID,A,P],metadata,
+            g(new IllegalArgumentException(s"Key $id already exists!"))
+          )
         }
       }
-
-      override def replace[X](id: ID)(f: OldState => (A,X))(implicit metadata: Metadata): Future[X] = {
-        setState { (when, state) =>
-          val oldValue = state.active(id)
-          val (newValue,x) = f(state)
-          val patch = oldValue calcDiff newValue
-          val newState =
-            state.copy(
-              when = when,
-              active = state.active + ((id,newValue)),
-              inactive = state.inactive - id,
-              oomEvent = (id,Event.Replace[A,P](patch,metadata.copy(when=when))) :: Nil
-            )
-          (newState, x)
-        }
-      }
-
-      override def reactivate(id: ID)(implicit metadata: Metadata): Future[Boolean] = {
-        setState { (when,state) =>
-          state.inactive.get(id) match {
-            case Some(a) =>
-              val newState =
-                state.copy(
-                  when = when,
-                  inactive = state.inactive - id,
-                  active = state.active + ((id,a)),
-                  oomEvent = (id,Event.Reactivate[A,P](metadata.copy(when=when))) :: Nil
-                )
-
-              (newState, true)
-            case None =>
-              (state, false)
-          }
-        }
-      }
-
-      override def deactivate(id: ID)(implicit metadata: Metadata): Future[Boolean] = {
-        setState { (when,state) =>
-          state.active.get(id) match {
-            case Some(a) =>
-              val newState =
-                state.copy(
-                  when = when,
-                  inactive = state.inactive + ((id,a)),
-                  active = state.active - id,
-                  oomEvent = (id,Event.Deactivate[A,P](metadata.copy(when=when))) :: Nil
-                )
-
-              (newState, true)
-            case None =>
-              (state, false)
-          }
-        }
-      }
-
     }
+
+
+    override def replaceFold[X](id: ID)(
+      f: OldState => (A,X),
+      g: Exception => X
+    )(implicit metadata: Metadata): Future[X] = {
+      setState { currentState =>
+        if(
+          currentState.active.contains(id) ||
+          currentState.inactive.contains(id)
+        ) {
+          val record = currentState.active(id)
+          val oldValue = record.value
+          val (newValue,x) = f(currentState)
+          val patch = oldValue calcDiff newValue
+          val commit = Commit.newBuilder
+            .replace(id,record.version,patch)
+            .result()
+
+          (commit, metadata, x)
+
+        } else {
+          (Commit.noChange, metadata,
+            g(new IllegalArgumentException(s"Key $id does not exist!"))
+          )
+        }
+      }
+    }
+
+    override def reactivate(id: ID)(implicit
+      metadata: Metadata
+    ): Future[Boolean] = {
+      setState { currentState =>
+        currentState.inactive.get(id) match {
+          case Some(record) =>
+            val commit = Commit.newBuilder
+              .reactivate(id,record.version)
+              .result()
+            (commit, metadata, true)
+          case None =>
+            (Commit.noChange, metadata, false)
+        }
+      }
+    }
+
+    override def deactivate(id: ID)(implicit
+      metadata: Metadata
+    ): Future[Boolean] = {
+      setState { currentState =>
+        currentState.active.get(id) match {
+          case Some(record) =>
+            val commit = Commit.newBuilder
+              .deactivate(id,record.version)
+              .result()
+            (commit, metadata, true)
+          case None =>
+            (Commit.noChange, metadata, false)
+        }
+      }
+    }
+
+
+    override def commitFold[X](
+      f: OldState => (Commit[ID,A,P],X),
+      g: Exception => X
+    )(implicit metadata: Metadata): Future[X] =
+      setState { currentState =>
+        val (commit,x) = f(currentState)
+        (commit, metadata, x)
+      }
+
+    override def mergeFold[X](
+      f: OldState => (PersistentMap[ID,A,P],X),
+      g: Exception => X
+    )(implicit metadata: Metadata): Future[X] = ???
+//    {
+//      setState { currentState =>
+//        val other = f(currentState)
+//
+//      }
+//    }
+
+    def currentState = whenToOldState.lastEntry.getValue
+    override def count = currentState.count
+    override def toMap = currentState.toMap
+    override def findActiveIds = currentState.findActiveIds
+    override def find(id: ID) = currentState.find(id)
+    override def findInactiveIds = currentState.findInactiveIds
+    override def checkout(filter: ID => Boolean) =  currentState.checkout(filter)
   }
+  
+  override def now = NowStateEx
 
   override def future(when: Instant)(implicit m: Metadata): FutureState = ???
 
