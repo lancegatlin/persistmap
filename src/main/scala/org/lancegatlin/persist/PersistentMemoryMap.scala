@@ -367,7 +367,6 @@ class PersistentMemoryMap[ID,A,P](
               val isSuccess =
                 whenToOldState.synchronized {
                   if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
-                    println(s"Appending $zomCommit")
                     _appendCommits(
                       whenToOldState,
                       zomCommit,

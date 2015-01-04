@@ -6,18 +6,22 @@ v2,02-Jan-2015
 
 *UNDER CONSTRUCTION*
 
-An experimental partially persistent
-(http://en.wikipedia.org/wiki/Persistent_data_structure) and thread-safe Map
+An experimental asynchronous, immutable and partially persistent
+(http://en.wikipedia.org/wiki/Persistent_data_structure) Map
 that reifies time. The past may be queried but changes may only be made to "now"
  or in the "future".
 
-* Full record of changes can be retrieved per item
-* Changes are stored as an event stream
-* Writing to "now" is non-transactional but thread-safe
+* Writing to "now" is non-transactional but thread-safe (see example 1 below)
 * Writing to "future" is transactional using optimistic write model similar to
-STM
+STM (see example 2 below)
+* Changes are stored as a commit event stream
+* Use git-style checkout to rebase and copy a portion of the data and make local
+ changes
+* Use git-style merge to replay commits to another persistent map (see example
+3 below)
+* Full record of changes can be retrieved per item (not implemented yet)
 
-.Example
+.Example 1: Query the past and write to now
 ----
 Welcome to Scala version 2.11.1 (Java HotSpot(TM) 64-Bit Server VM, Java 1.7.0_72).
 Type in expressions to have them evaluated.
@@ -80,4 +84,101 @@ scala> p.old(t1).toMap.get
 res13: Map[Int,String] = Map(1 -> a, 2 -> b)
 
 scala>
+----
+
+.Example 2: Multi-write transaction in the future
+----
+[info] Loading global plugins from /home/lgatlin/.sbt/0.13/plugins
+[info] Set current project to history (in build file:/home/lgatlin/Code/persistmap/)
+> console
+[info] Starting scala interpreter...
+[info]
+Welcome to Scala version 2.11.1 (Java HotSpot(TM) 64-Bit Server VM, Java 1.7.0_72).
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> :load consoleImports
+Loading consoleImports...
+import org.joda.time._
+import scala.concurrent._
+import s_mach.concurrent._
+import org.lancegatlin.persist._
+import scala.concurrent.ExecutionContext.Implicits.global
+m: org.lancegatlin.persist.Metadata = Metadata(me,None,2015-01-04T06:00:05.886Z)
+p: org.lancegatlin.persist.PersistentMemoryMap[Int,String,Option[String]] = org.lancegatlin.persist.PersistentMemoryMap@2e2384bd
+t1: org.joda.time.Instant = 2015-01-04T06:00:07.108Z
+
+scala> :paste
+// Entering paste mode (ctrl-D to finish)
+
+val f = p.future
+val result = {
+  for {
+    oa <- f.find(1)
+    result <- {
+      f.replace(1,oa.get + "b")
+      f.put(3,"c")
+      f.commit()
+    }
+  } yield result
+}
+
+
+// Exiting paste mode, now interpreting.
+
+f: p.FutureStateEx = FutureStateEx(BaseOldState(Map(1 -> Record(a,1), 2 -> Record(b,1)),Map(),Metadata(me,None,2015-01-04T06:00:05.886Z)))
+result: scala.concurrent.Future[Boolean] = scala.concurrent.impl.Promise$DefaultPromise@1c9aa4d4
+
+scala> result.get
+res0: Boolean = true
+
+scala> p.now.toMap.get
+res1: Map[Int,String] = Map(2 -> b, 1 -> ab, 3 -> c)
+----
+
+.Example 3: Git-style operations
+----
+[info] Starting scala interpreter...
+[info]
+Welcome to Scala version 2.11.1 (Java HotSpot(TM) 64-Bit Server VM, Java 1.7.0_72).
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> :load consoleImports
+Loading consoleImports...
+import org.joda.time._
+import scala.concurrent._
+import s_mach.concurrent._
+import org.lancegatlin.persist._
+import scala.concurrent.ExecutionContext.Implicits.global
+m: org.lancegatlin.persist.Metadata = Metadata(me,None,2015-01-04T06:02:32.401Z)
+p: org.lancegatlin.persist.PersistentMemoryMap[Int,String,Option[String]] = org.lancegatlin.persist.PersistentMemoryMap@2c20acdf
+t1: org.joda.time.Instant = 2015-01-04T06:02:33.054Z
+
+scala> p.now.put(3,"c").get
+res0: Boolean = true
+
+scala> p.now.toMap.get
+res1: Map[Int,String] = Map(2 -> b, 1 -> a, 3 -> c)
+
+scala> val p2 = p.now.checkout(_ == 3).get
+p2: org.lancegatlin.persist.PersistentMap[Int,String,Option[String]] = org.lancegatlin.persist.PersistentMemoryMap@33ab4788
+
+scala> p2.now.toMap.get
+res2: Map[Int,String] = Map(3 -> c)
+
+scala> p2.now.replace(3,"cc").get
+res3: Boolean = true
+
+scala> p2.now.put(4,"d").get
+res4: Boolean = true
+
+scala> p2.now.toMap.get
+res5: Map[Int,String] = Map(4 -> d, 3 -> cc)
+
+scala> p.now.merge(p2).get
+res6: Boolean = true
+
+scala> p.now.toMap.get
+res7: Map[Int,String] = Map(2 -> b, 4 -> d, 1 -> a, 3 -> c)
 ----
