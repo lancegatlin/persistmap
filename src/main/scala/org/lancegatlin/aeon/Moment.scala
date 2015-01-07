@@ -1,4 +1,6 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon
+
+import org.lancegatlin.aeon.impl.EmptyMoment
 
 import scala.concurrent.Future
 

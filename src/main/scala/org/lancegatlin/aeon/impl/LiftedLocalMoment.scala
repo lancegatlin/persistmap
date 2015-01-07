@@ -1,14 +1,16 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon.impl
+
+import org.lancegatlin.aeon.{LocalMoment, Moment}
+import s_mach.concurrent._
 
 import scala.language.higherKinds
-import s_mach.concurrent._
 
 trait LiftedLocalMoment[A,+B,+LM[AA,+BB] <: LocalMoment[AA,BB]] extends Moment[A,B] {
   def local:LM[A,B]
 
-  override lazy val count = local.count.future
-  override lazy val findActiveIds = local.findActiveIds.future
-  override lazy val findInactiveIds = local.findInactiveIds.future
+  override def count = local.count.future
+  override def findActiveIds = local.findActiveIds.future
+  override def findInactiveIds = local.findInactiveIds.future
   override def find(key: A) = local.find(key).future
   override def findVersion(key: A) = local.findVersion(key).future
   override def findRecord(key: A) =
@@ -21,8 +23,8 @@ trait LiftedLocalMoment[A,+B,+LM[AA,+BB] <: LocalMoment[AA,BB]] extends Moment[A
   override def active = local.active.future
   override def inactive = local.inactive.future
 
-  override lazy val toMap = local.toMap.future
-  override lazy val materialize = local.materialize.future
+  override def toMap = local.toMap.future
+  override def materialize = local.materialize.future
 }
 
 object LiftedLocalMoment {

@@ -6,5 +6,5 @@ import scala.concurrent.ExecutionContext.Implicits.global
 implicit val m = Metadata("me")
 val t1 = Instant.now()
 Thread.sleep(1)
-val p = LocalCommitMap(1 -> "a",2 -> "b")
+val p = LocalDiffMap(1 -> "a",2 -> "b")
 val t2 = Instant.now()

@@ -1,5 +1,6 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon.impl
 
+import org.lancegatlin.aeon.{Record, MaterializedMoment, Moment}
 import s_mach.concurrent._
 
 import scala.concurrent.Future

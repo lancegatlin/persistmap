@@ -1,4 +1,4 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon
 
 import org.scalatest.{Matchers, fixture}
 

@@ -1,4 +1,4 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon
 
 trait LocalMoment[A,+B] {
 
@@ -13,8 +13,8 @@ trait LocalMoment[A,+B] {
 
   def filter(f: (A,Boolean) => Boolean) : LocalMoment[A,B]
 
-  def active : Iterable[(A,Record[B])]
-  def inactive : Iterable[(A,Record[B])]
+  def active : Map[A,Record[B]]
+  def inactive : Map[A,Record[B]]
 
   def toMap : Map[A, B]
 

@@ -1,4 +1,6 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon.impl
+
+import org.lancegatlin.aeon._
 
 trait LazyLocalMoment[A,+B] extends
   LocalMoment[A,B] { self =>
@@ -7,8 +9,8 @@ trait LazyLocalMoment[A,+B] extends
 
   override lazy val count = (active.size,inactive.size)
 
-  override def findActiveIds = active.keys
-  override def findInactiveIds = inactive.keys
+  override lazy val findActiveIds = active.keys
+  override lazy val findInactiveIds = inactive.keys
 
   override def find(key: A) = active.get(key).map(_.value)
   override def findVersion(key: A) = active.get(key).map(_.version)

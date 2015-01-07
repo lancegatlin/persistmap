@@ -1,4 +1,7 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon.impl
+
+import org.lancegatlin.aeon._
+import org.lancegatlin.aeon.diffmap.Commit
 
 class CommitBuilder[A,B,PB] {
   private[this] val _checkout = Map.newBuilder[A,Long]
@@ -38,7 +41,7 @@ class CommitBuilder[A,B,PB] {
 
   def reactivate(key:A, version:Long) = {
     _checkout.+=((key,version))
-    _deactivate += key
+    _reactivate += key
     this
   }
 
@@ -62,5 +65,9 @@ class CommitBuilder[A,B,PB] {
       )
     )
   }
+}
+
+object CommitBuilder {
+  def apply[A,B,PB]() : CommitBuilder[A,B,PB] = new CommitBuilder[A,B,PB]
 }
 

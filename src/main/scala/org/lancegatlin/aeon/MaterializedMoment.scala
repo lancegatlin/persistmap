@@ -1,14 +1,16 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon
+
+import org.lancegatlin.aeon.impl.LiftedLocalMoment
 
 trait MaterializedMoment[A,+B] extends
   LocalMoment[A,B] {
   def active: Map[A,Record.Materialized[B]]
   def inactive: Map[A,Record.Materialized[B]]
 
-  override def count = (active.size,inactive.size)
+  override lazy val count = (active.size,inactive.size)
 
-  override def findActiveIds = active.keys
-  override def findInactiveIds = inactive.keys
+  override lazy val findActiveIds = active.keys
+  override lazy val findInactiveIds = inactive.keys
 
   override def find(key: A) = active.get(key).map(_.value)
   override def findRecord(key: A) = active.get(key) orElse inactive.get(key)
@@ -22,7 +24,7 @@ trait MaterializedMoment[A,+B] extends
     )
   }
 
-  override def toMap = active.map { case (key,record) =>
+  override lazy val toMap = active.map { case (key,record) =>
     (key,record.value)
   }.toMap
 

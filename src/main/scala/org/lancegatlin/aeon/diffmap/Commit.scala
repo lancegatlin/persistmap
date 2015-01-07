@@ -1,4 +1,4 @@
-package org.lancegatlin.persist
+package org.lancegatlin.aeon.diffmap
 
 case class Commit[A,+B,+PB](
   put: Map[A,B] = Map.empty[A,B],
@@ -14,7 +14,6 @@ case class Commit[A,+B,+PB](
 }
 
 object Commit {
-  def newBuilder[A,B,PB] = new CommitBuilder[A,B,PB]
   private[this] val _noChange = Commit[Any,Nothing,Nothing]()
   def noChange[A,B,PB] : Commit[A,B,PB] = _noChange.asInstanceOf[Commit[A,B,PB]]
 }
