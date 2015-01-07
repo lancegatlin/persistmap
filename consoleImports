@@ -4,5 +4,7 @@ import s_mach.concurrent._
 import org.lancegatlin.persist._
 import scala.concurrent.ExecutionContext.Implicits.global
 implicit val m = Metadata("me")
-val p = PersistentMemoryMap(1 -> "a",2 -> "b")
 val t1 = Instant.now()
+Thread.sleep(1)
+val p = LocalCommitMap(1 -> "a",2 -> "b")
+val t2 = Instant.now()

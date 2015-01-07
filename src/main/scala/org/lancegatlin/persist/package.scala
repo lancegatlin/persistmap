@@ -4,6 +4,12 @@ import org.joda.time.{Interval, Instant}
 
 package object persist {
 
+  val beginOfTime = new Instant(0)
+  val endOfTime = new Instant(Long.MaxValue)
+  val allOfTime = (beginOfTime,endOfTime)
+
+  type Checkout[A] = Map[A, Long]
+
   // Note: using this since Interval creating an interval discards the Instant
   // instances. Round trip from (Instant,Instant) to Interval to
   // (Instant,Instant) means throwing away original instances, creating temp
