@@ -107,14 +107,14 @@ class LocalDiffMap[A,B,PB](
   ) extends OldMoment with LiftedLocalMoment[A,B,LazyLocalMoment] {
     val local = LazyLocalMoment(
       calcActive = {
-        val builder = mutable.Map[A,Record[B]](prev.local.active.toSeq:_*)
+        val builder = mutable.Map[A,Record.Active[B]](prev.local.active.toSeq:_*)
         oomCommit.foreach { case (commit,_) =>
           commit.put.foreach { case (key,value) =>
             builder.put(key,Record(value))
           }
           commit.replace.foreach { case (key,patch) =>
             // Note: not closing over builder here so that it can be discarded
-            lazy val record = prev.local.findRecord(key).get
+            lazy val record = prev.local.active(key)
             lazy val calcValue = record.value applyPatch patch
             lazy val calcVersion = record.version + 1
             builder.put(key, Record.lazyApply(
@@ -123,12 +123,11 @@ class LocalDiffMap[A,B,PB](
             ))
           }
           commit.deactivate.foreach(builder.remove)
-          commit.reactivate.foreach { key =>
-            lazy val record = prev.local.findRecord(key).get
-            lazy val calcValue = record.value
+          commit.reactivate.foreach { case (key,value) =>
+            lazy val record = prev.local.inactive(key)
             lazy val calcVersion = record.version + 1
             builder.put(key, Record.lazyApply(
-              calcValue = calcValue,
+              calcValue = value,
               calcVersion = calcVersion
             ))
           }
@@ -136,87 +135,82 @@ class LocalDiffMap[A,B,PB](
         builder.toMap
       },
       calcInactive = {
-        val builder = mutable.Map[A,Record[B]](prev.local.inactive.toSeq:_*)
+        val builder = mutable.Map[A,Record.Inactive[B]](prev.local.inactive.toSeq:_*)
         oomCommit.foreach { case (commit,_) =>
-          commit.reactivate.foreach(builder.remove)
-            commit.deactivate.foreach { key =>
-            lazy val record = prev.local.findRecord(key).get
-            lazy val calcValue = record.value
-            lazy val calcVersion = record.version + 1
-              builder.put(key, Record.lazyApply(
-                calcValue = calcValue,
-                calcVersion = calcVersion
-              ))
-            }
+          commit.reactivate.foreach { case (k,_) => builder.remove(k) }
+          commit.deactivate.foreach { key =>
+            val record = prev.local.active(key)
+            builder.put(key, Record.Inactive(record.version + 1))
           }
+        }
         builder.toMap
       }
     )
   }
 
-  case class MaterializedOldMoment(
-    oomCommit: List[(Commit[A,B,PB],Metadata)],
-    prev: OldMoment
-  ) extends OldMoment with LiftedLocalMoment[A,B,MaterializedMoment] {
-    val local = MaterializedMoment(
-      active = {
-        val builder = mutable.Map[A,Record.Materialized[B]](
-          prev.local.active
-            .iterator
-            .map { case (key,record) => (key,record.materialize) }
-            .toSeq:_*
-        )
-        oomCommit.foreach { case (commit,_) =>
-          commit.put.foreach { case (key,value) =>
-            builder.put(key,Record(value))
-          }
-          commit.replace.foreach { case (key,patch) =>
-            val record = prev.local.findRecord(key).get
-            val value = record.value applyPatch patch
-            val version = record.version + 1
-            builder.put(key, Record(
-              value = value,
-              version = version
-            ))
-          }
-          commit.deactivate.foreach(builder.remove)
-          commit.reactivate.foreach { key =>
-            val record = prev.local.findRecord(key).get
-            val materializedRecord = record.materialize
-            builder.put(
-              key,
-              materializedRecord.copy(
-                version = materializedRecord.version + 1
-              )
-            )
-          }
-        }
-        builder.toMap
-      },
-      inactive = {
-        val builder = mutable.Map[A,Record.Materialized[B]](
-          prev.local.inactive
-            .iterator
-            .map { case (key,record) => (key,record.materialize) }
-            .toSeq:_*
-        )
-        oomCommit.foreach { case (commit,_) =>
-          commit.reactivate.foreach(builder.remove)
-            commit.deactivate.foreach { key =>
-              val record = prev.local.findRecord(key).get
-              val materializedRecord = record.materialize
-              builder.put(
-                key,
-                materializedRecord.copy(
-                  version = materializedRecord.version + 1
-                )
-              )
-            }
-          }
-        builder.toMap
-      }
-    )
-  }
+//  case class MaterializedOldMoment(
+//    oomCommit: List[(Commit[A,B,PB],Metadata)],
+//    prev: OldMoment
+//  ) extends OldMoment with LiftedLocalMoment[A,B,MaterializedMoment] {
+//    val local = MaterializedMoment(
+//      active = {
+//        val builder = mutable.Map[A,Record.Materialized[B]](
+//          prev.local.active
+//            .iterator
+//            .map { case (key,record) => (key,record.materialize) }
+//            .toSeq:_*
+//        )
+//        oomCommit.foreach { case (commit,_) =>
+//          commit.put.foreach { case (key,value) =>
+//            builder.put(key,Record(value))
+//          }
+//          commit.replace.foreach { case (key,patch) =>
+//            val record = prev.local.findRecord(key).get
+//            val value = record.value applyPatch patch
+//            val version = record.version + 1
+//            builder.put(key, Record(
+//              value = value,
+//              version = version
+//            ))
+//          }
+//          commit.deactivate.foreach(builder.remove)
+//          commit.reactivate.foreach { key =>
+//            val record = prev.local.findRecord(key).get
+//            val materializedRecord = record.materialize
+//            builder.put(
+//              key,
+//              materializedRecord.copy(
+//                version = materializedRecord.version + 1
+//              )
+//            )
+//          }
+//        }
+//        builder.toMap
+//      },
+//      inactive = {
+//        val builder = mutable.Map[A,Record.Materialized[B]](
+//          prev.local.inactive
+//            .iterator
+//            .map { case (key,record) => (key,record.materialize) }
+//            .toSeq:_*
+//        )
+//        oomCommit.foreach { case (commit,_) =>
+//          commit.reactivate.foreach(builder.remove)
+//            commit.deactivate.foreach { key =>
+//              val record = prev.local.findRecord(key).get
+//              val materializedRecord = record.materialize
+//              builder.put(
+//                key,
+//                materializedRecord.copy(
+//                  version = materializedRecord.version + 1
+//                )
+//              )
+//            }
+//          }
+//        builder.toMap
+//      }
+//    )
+//  }
 
   val NoOldMoment = new OldMoment with LiftedLocalMoment[A,B,LocalMoment] {
     val local = LocalMoment.empty[A,B]
@@ -387,13 +381,14 @@ class LocalDiffMap[A,B,PB](
     }
 
     override def reactivate(
-      key: A
+      key: A,
+      value: B
     )(implicit metadata: Metadata) : Future[Boolean] = {
       setState { nowMoment =>
         nowMoment.local.inactive.get(key) match {
           case Some(record) =>
             val (checkout,commit) = CommitBuilder[A,B,PB]()
-              .reactivate(key,record.version)
+              .reactivate(key,value,record.version)
               .result()
             (checkout, (commit,metadata) :: Nil, true).future
           case None =>
@@ -509,10 +504,11 @@ class LocalDiffMap[A,B,PB](
     }
 
     override def reactivate(
-      key: A
+      key: A,
+      value: B
     ): FutureMoment = {
       val record = base.local.inactive(key)
-      builder.reactivate(key,record.version)
+      builder.reactivate(key,value,record.version)
       this
     }
 

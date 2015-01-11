@@ -13,8 +13,8 @@ trait EmptyMoment extends Moment[Any,Nothing] {
   override def findVersion(key: Any) = None.future
   override def findRecord(key: Any) = None.future
   override def filter(f: (Any, Boolean) => Boolean) = this.future
-  override val active = Iterable.empty[(Any, Record[Nothing])].future
-  override val inactive = Iterable.empty[(Any, Record[Nothing])].future
+  override val active = Iterable.empty[(Any, Record.Active[Nothing])].future
+  override val inactive = Iterable.empty[(Any, Record.Inactive[Nothing])].future
   override val toMap = Map.empty[Any,Nothing].future
   override val materialize: Future[MaterializedMoment[Any, Nothing]] =
     MaterializedMoment.empty[Any,Nothing].future

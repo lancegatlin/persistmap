@@ -13,8 +13,8 @@ trait LocalMoment[A,+B] {
 
   def filter(f: (A,Boolean) => Boolean) : LocalMoment[A,B]
 
-  def active : Map[A,Record[B]]
-  def inactive : Map[A,Record[B]]
+  def active : Map[A,Record.Active[B]]
+  def inactive : Map[A,Record.Inactive[B]]
 
   def toMap : Map[A, B]
 
@@ -33,7 +33,7 @@ object LocalMoment {
 
   def apply[A,B](
     active: Map[A,Record.Materialized[B]],
-    inactive: Map[A,Record.Materialized[B]]
+    inactive: Map[A,Record.Inactive[B]]
   ) : MaterializedMoment[A,B] =
     MaterializedMoment[A,B](
       active = active,

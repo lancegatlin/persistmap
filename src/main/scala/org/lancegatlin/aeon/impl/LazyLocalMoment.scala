@@ -4,8 +4,8 @@ import org.lancegatlin.aeon._
 
 trait LazyLocalMoment[A,+B] extends
   LocalMoment[A,B] { self =>
-  def active: Map[A,Record[B]]
-  def inactive: Map[A,Record[B]]
+  def active: Map[A,Record.Active[B]]
+  def inactive: Map[A,Record.Inactive[B]]
 
   override lazy val count = (active.size,inactive.size)
 
@@ -20,7 +20,7 @@ trait LazyLocalMoment[A,+B] extends
   override def filter(f: (A,Boolean) => Boolean): LazyLocalMoment[A,B] =
     LazyLocalMoment(
       calcActive = self.active.filterKeys({ k => f(k,true)}),
-      calcInactive = self.active.filterKeys({ k => f(k,true)})
+      calcInactive = self.inactive.filterKeys({ k => f(k,true)})
     )
 
   override lazy val toMap = active.map { case (key,record) =>
@@ -30,7 +30,7 @@ trait LazyLocalMoment[A,+B] extends
 
   override lazy val materialize = MaterializedMoment(
     active = active.map { case (key,record) => (key,record.materialize) }.toMap,
-    inactive = inactive.map { case (key,record) => (key,record.materialize) }.toMap
+    inactive = inactive
   )
   lazy val lift : Moment[A,B] = LiftedLocalMoment[A,B,LazyLocalMoment](this)
 }
@@ -40,8 +40,8 @@ object LazyLocalMoment {
   def empty[A,B] = _empty.asInstanceOf[LazyLocalMoment[A,B]]
 
   case class LazyLocalMomentImpl[A,B]()(
-    calcActive: Map[A,Record[B]],
-    calcInactive: Map[A,Record[B]] = Map.empty[A,Record[B]]
+    calcActive: Map[A,Record.Active[B]],
+    calcInactive: Map[A,Record.Inactive[B]] = Map.empty[A,Record.Inactive[B]]
   ) extends LazyLocalMoment[A,B] {
     lazy val active = calcActive
     lazy val inactive = calcInactive
@@ -53,8 +53,8 @@ object LazyLocalMoment {
     )
 
   def apply[A,B](
-    calcActive: => Map[A,Record[B]],
-    calcInactive: => Map[A,Record[B]]
+    calcActive: => Map[A,Record.Active[B]],
+    calcInactive: => Map[A,Record.Inactive[B]]
   ) : LazyLocalMoment[A,B] =
     LazyLocalMomentImpl[A,B]()(
       calcActive = calcActive,

@@ -8,7 +8,7 @@ class CommitBuilder[A,B,PB] {
   private[this] val _put = Map.newBuilder[A,B]
   private[this] val _replace = Map.newBuilder[A,PB]
   private[this] val _deactivate = Set.newBuilder[A]
-  private[this] val _reactivate= Set.newBuilder[A]
+  private[this] val _reactivate= Map.newBuilder[A,B]
 
   def checkout(key: A, version: Long) = {
     _checkout.+=((key,version))
@@ -39,9 +39,13 @@ class CommitBuilder[A,B,PB] {
     this
   }
 
-  def reactivate(key:A, version:Long) = {
+  def reactivate(
+    key:A,
+    value:B,
+    version:Long
+  ) = {
     _checkout.+=((key,version))
-    _reactivate += key
+    _reactivate += ((key,value))
     this
   }
 
@@ -53,7 +57,7 @@ class CommitBuilder[A,B,PB] {
     val reactivate = _reactivate.result()
     require(replace.keySet.forall(checkout.contains),"All changed ids must be checked out")
     require(deactivate.forall(checkout.contains),"All deactivated ids must be checked out")
-    require(reactivate.forall(checkout.contains),"All reactivated ids must be checked out")
+    require(reactivate.forall { case (k,_) => checkout.contains(k) },"All reactivated ids must be checked out")
 
     (
       checkout,

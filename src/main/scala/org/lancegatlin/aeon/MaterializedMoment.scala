@@ -5,7 +5,7 @@ import org.lancegatlin.aeon.impl.LiftedLocalMoment
 trait MaterializedMoment[A,+B] extends
   LocalMoment[A,B] {
   def active: Map[A,Record.Materialized[B]]
-  def inactive: Map[A,Record.Materialized[B]]
+  def inactive: Map[A,Record.Inactive[B]]
 
   override lazy val count = (active.size,inactive.size)
 
@@ -39,7 +39,7 @@ object MaterializedMoment {
 
   case class MaterializedMomentImpl[A,B](
     active: Map[A,Record.Materialized[B]],
-    inactive: Map[A,Record.Materialized[B]] = Map.empty[A,Record.Materialized[B]]
+    inactive: Map[A,Record.Inactive[B]] = Map.empty[A,Record.Inactive[B]]
   ) extends MaterializedMoment[A,B]
   def apply[A,B](kv: (A,B)*) : MaterializedMoment[A,B] =
     MaterializedMomentImpl[A,B](
@@ -48,7 +48,7 @@ object MaterializedMoment {
 
   def apply[A,B](
     active: Map[A,Record.Materialized[B]],
-    inactive: Map[A,Record.Materialized[B]]
+    inactive: Map[A,Record.Inactive[B]]
   ) : MaterializedMoment[A,B] =
     MaterializedMomentImpl[A,B](
       active = active,

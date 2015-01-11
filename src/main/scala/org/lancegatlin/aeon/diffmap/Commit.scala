@@ -4,7 +4,7 @@ case class Commit[A,+B,+PB](
   put: Map[A,B] = Map.empty[A,B],
   replace: Map[A,PB] = Map.empty[A,PB],
   deactivate: Set[A] = Set.empty[A],
-  reactivate: Set[A] = Set.empty[A]
+  reactivate: Map[A,B] = Map.empty[A,B]
 ) {
   def isNoChange : Boolean =
     put.size == 0 &&
