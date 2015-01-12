@@ -77,17 +77,17 @@ class LocalDiffMap[A,B,PB](
     def local: LocalMoment[A,B]
 
     override def checkout(
-      filter: (A,Boolean) => Boolean
+      f: A => Boolean
     ): Future[LocalDiffMap[A,B,PB]] = {
       for {
-        materializedMoment <- materialize
+        materializedMoment <- filterKeys(f).materialize
       } yield {
         new LocalDiffMap(
           // TODO: last is super inefficient
           _baseAeon = Aeon(oomCommit.last._2.when,oomCommit.head._2.when),
-          _baseState = LocalMoment(
-            active = materializedMoment.active.filterKeys({ k => filter(k,true) }),
-            inactive = materializedMoment.inactive.filterKeys({ k => filter(k,false)})
+          _baseState = MaterializedMoment(
+            active = materializedMoment.active,
+            inactive = materializedMoment.inactive
           ),
           zomBaseCommit = Nil
         )
@@ -285,7 +285,7 @@ class LocalDiffMap[A,B,PB](
     def canCommit(checkout: Checkout[A], moment: OldMoment) : Boolean = {
       // Check if any of commit's checkout verions changed
       checkout.forall { case (key,version) =>
-        moment.local.findRecord(key).exists(_.version == version)
+        moment.local.all.get(key).exists(_.version == version)
       }
     }
 
@@ -434,8 +434,8 @@ class LocalDiffMap[A,B,PB](
         for {
           (other, x) <- f(nowMoment)
           otherBase = other.base
-          otherActive <- otherBase.active
-          otherInactive <- otherBase.inactive
+          otherActive <- otherBase.active.toMap
+          otherInactive <- otherBase.inactive.toMap
           zomCommit <- other.zomCommit
           result <- {
             val checkout =
@@ -472,9 +472,9 @@ class LocalDiffMap[A,B,PB](
     }
 
     override def checkout(
-      filter: (A,Boolean) => Boolean
+      f: A => Boolean
     ): Future[LocalDiffMap[A,B,PB]] = {
-      mostRecentOldMoment.checkout(filter)
+      mostRecentOldMoment.checkout(f)
     }
   }
 

@@ -2,35 +2,11 @@ package org.lancegatlin.aeon
 
 import org.lancegatlin.aeon.impl.LiftedLocalMoment
 
-trait MaterializedMoment[A,+B] extends
-  LocalMoment[A,B] {
-  def active: Map[A,Record.Materialized[B]]
-  def inactive: Map[A,Record.Inactive]
-
-  override lazy val count = (active.size,inactive.size)
-
-  override lazy val findActiveIds = active.keys
-  override lazy val findInactiveIds = inactive.keys
-
-  override def find(key: A) = active.get(key).map(_.value)
-  override def findRecord(key: A) = active.get(key) orElse inactive.get(key)
-  override def findVersion(key: A) = active.get(key).map(_.version)
-
-
-  override def filterKeys(f: A => Boolean): MaterializedMoment[A, B] = {
-    MaterializedMoment(
-      active = active.filterKeys(f),
-      inactive = inactive.filterKeys(f)
-    )
-  }
-
-  override lazy val toMap = active.map { case (key,record) =>
-    (key,record.value)
-  }.toMap
-
+trait MaterializedMoment[A,+B] extends LocalMoment[A,B] {
+  override def active : Map[A,Record.Materialized[B]]
 
   override def materialize = this
-  lazy val lift : Moment[A,B] = LiftedLocalMoment[A,B,MaterializedMoment](this)
+  lazy val asMoment : Moment[A,B] = LiftedLocalMoment[A,B,MaterializedMoment](this)
 }
 
 object MaterializedMoment {
@@ -40,7 +16,14 @@ object MaterializedMoment {
   case class MaterializedMomentImpl[A,B](
     active: Map[A,Record.Materialized[B]],
     inactive: Map[A,Record.Inactive] = Map.empty[A,Record.Inactive]
-  ) extends MaterializedMoment[A,B]
+  ) extends DelegatedMap[A,B] with MaterializedMoment[A,B] {
+    val delegate = active.mapValues(_.value)
+    val all = new DelegatedUnionMap2[A,Record[B]] {
+      def delegate1 = active
+      def delegate2 = inactive
+    }
+  }
+
   def apply[A,B](kv: (A,B)*) : MaterializedMoment[A,B] =
     MaterializedMomentImpl[A,B](
       active = kv.map { case (key,value) => (key, Record(value))}.toMap

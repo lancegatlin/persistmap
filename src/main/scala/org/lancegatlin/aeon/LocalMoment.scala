@@ -1,25 +1,14 @@
 package org.lancegatlin.aeon
 
-trait LocalMoment[A,+B] {
-
-  def count : (Int,Int)
-
-  def findActiveIds: Iterable[A]
-  def findInactiveIds: Iterable[A]
-
-  def find(key: A) : Option[B]
-  def findVersion(key: A) : Option[Long]
-  def findRecord(key: A) : Option[Record[B]]
-
-  def filterKeys(f: A => Boolean) : LocalMoment[A,B]
-
+trait LocalMoment[A,+B] extends Map[A,B] {
   def active : Map[A,Record.Active[B]]
   def inactive : Map[A,Record.Inactive]
+  def all: Map[A,Record[B]]
 
-  def toMap : Map[A, B]
+  abstract override def filterKeys(f: A => Boolean) : LocalMoment[A,B]
 
   def materialize : MaterializedMoment[A,B]
-  def lift : Moment[A,B]
+  def asMoment: Moment[A,B]
 }
 
 object LocalMoment {

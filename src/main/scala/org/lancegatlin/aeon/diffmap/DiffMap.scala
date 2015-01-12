@@ -13,7 +13,7 @@ trait DiffMap[A,B,PB] extends AeonMap[A,B] {
 
   trait OldMoment extends super.OldMoment {
     def checkout(
-      filter: (A,Boolean) => Boolean
+      f: A => Boolean
     ) : Future[DiffMap[A,B,PB]]
   }
 
