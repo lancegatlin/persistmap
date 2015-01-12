@@ -135,7 +135,7 @@ class LocalDiffMap[A,B,PB](
         builder.toMap
       },
       calcInactive = {
-        val builder = mutable.Map[A,Record.Inactive[B]](prev.local.inactive.toSeq:_*)
+        val builder = mutable.Map[A,Record.Inactive](prev.local.inactive.toSeq:_*)
         oomCommit.foreach { case (commit,_) =>
           commit.reactivate.foreach { case (k,_) => builder.remove(k) }
           commit.deactivate.foreach { key =>

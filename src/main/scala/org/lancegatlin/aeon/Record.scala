@@ -6,9 +6,9 @@ sealed trait Record[+A] {
 }
 
 object Record {
-  case class Inactive[+A](
+  case class Inactive(
     version: Long
-  ) extends Record[A] {
+  ) extends Record[Nothing] {
     override def isActive = false
   }
 

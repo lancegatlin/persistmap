@@ -5,7 +5,7 @@ import org.lancegatlin.aeon._
 trait LazyLocalMoment[A,+B] extends
   LocalMoment[A,B] { self =>
   def active: Map[A,Record.Active[B]]
-  def inactive: Map[A,Record.Inactive[B]]
+  def inactive: Map[A,Record.Inactive]
 
   override lazy val count = (active.size,inactive.size)
 
@@ -41,7 +41,7 @@ object LazyLocalMoment {
 
   case class LazyLocalMomentImpl[A,B]()(
     calcActive: Map[A,Record.Active[B]],
-    calcInactive: Map[A,Record.Inactive[B]] = Map.empty[A,Record.Inactive[B]]
+    calcInactive: Map[A,Record.Inactive] = Map.empty[A,Record.Inactive]
   ) extends LazyLocalMoment[A,B] {
     lazy val active = calcActive
     lazy val inactive = calcInactive
@@ -54,7 +54,7 @@ object LazyLocalMoment {
 
   def apply[A,B](
     calcActive: => Map[A,Record.Active[B]],
-    calcInactive: => Map[A,Record.Inactive[B]]
+    calcInactive: => Map[A,Record.Inactive]
   ) : LazyLocalMoment[A,B] =
     LazyLocalMomentImpl[A,B]()(
       calcActive = calcActive,

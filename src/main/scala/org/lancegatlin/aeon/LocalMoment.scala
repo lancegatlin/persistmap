@@ -14,7 +14,7 @@ trait LocalMoment[A,+B] {
   def filterKeys(f: A => Boolean) : LocalMoment[A,B]
 
   def active : Map[A,Record.Active[B]]
-  def inactive : Map[A,Record.Inactive[B]]
+  def inactive : Map[A,Record.Inactive]
 
   def toMap : Map[A, B]
 
@@ -33,7 +33,7 @@ object LocalMoment {
 
   def apply[A,B](
     active: Map[A,Record.Materialized[B]],
-    inactive: Map[A,Record.Inactive[B]]
+    inactive: Map[A,Record.Inactive]
   ) : MaterializedMoment[A,B] =
     MaterializedMoment[A,B](
       active = active,

@@ -21,7 +21,7 @@ trait Moment[A,+B] {
   def filterKeys(f: A => Boolean) : Future[Moment[A,B]]
 
   def active : Future[Iterable[(A,Record.Active[B])]]
-  def inactive : Future[Iterable[(A,Record.Inactive[B])]]
+  def inactive : Future[Iterable[(A,Record.Inactive)]]
 
   def toMap : Future[Map[A, B]]
 
