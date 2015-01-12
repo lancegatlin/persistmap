@@ -6,9 +6,13 @@ import scala.concurrent.Future
 
 trait AeonMap[A,B] {
 
-  trait OldMoment extends MomentLike[A,B,OldMoment]
+  trait OldMoment extends Moment[A,B] {
+    override def filterKeys(f: (A) => Boolean): OldMoment
+  }
 
   trait NowMoment extends OldMoment {
+    override def filterKeys(f: (A) => Boolean): NowMoment
+
     def deactivate(key: A)(implicit metadata: Metadata) : Future[Boolean]
     def reactivate(key: A, value: B)(implicit metadata: Metadata) : Future[Boolean]
 

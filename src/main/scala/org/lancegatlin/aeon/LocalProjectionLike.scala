@@ -12,14 +12,6 @@ trait LocalProjection[A,+B] {
   def toMap: Map[A,B]
 }
 
-trait LocalProjectionLike[
-  A,
-  +B,
-  +CRTP <: LocalProjectionLike[A,B,CRTP]
-] extends LocalProjection[A,B] { self: CRTP =>
-  def filterKeys(f: A => Boolean) : CRTP
-}
-
 trait DelegatedLocalProjection[A,+B] extends LocalProjection[A,B] { self =>
   def delegate: Map[A,B]
 
@@ -38,15 +30,6 @@ object DelegatedLocalProjection {
   }
   def apply[A,B](delegate: Map[A,B]) : DelegatedLocalProjection[A,B] =
     DelegatedLocalProjectionImpl(delegate)
-}
-
-trait DelegatedLocalProjectionLike[
-  A,
-  +B,
-  +CRTP <: DelegatedLocalProjectionLike[A,B,CRTP]
-] extends DelegatedLocalProjection[A,B] with
-  LocalProjectionLike[A,B,CRTP] { self: CRTP =>
-  override def filterKeys(f: (A) => Boolean) : CRTP
 }
 
 trait DelegatedUnionLocalProjection[A,+B] extends LocalProjection[A,B] { self =>
@@ -75,13 +58,4 @@ object DelegatedUnionLocalProjection {
     delegate2: Map[A,B]
   ) : DelegatedUnionLocalProjection[A,B] =
     DelegatedUnionLocalProjectionImpl(delegate1, delegate2)
-}
-
-trait DelegatedUnionLocalProjectionLike[
-  A,
-  +B,
-  +CRTP <: DelegatedLocalProjectionLike[A,B,CRTP]
-] extends DelegatedLocalProjection[A,B] with
-  LocalProjectionLike[A,B,CRTP] { self: CRTP =>
-  abstract override def filterKeys(f: (A) => Boolean) : CRTP
 }

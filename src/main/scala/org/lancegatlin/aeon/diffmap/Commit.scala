@@ -11,6 +11,15 @@ case class Commit[A,+B,+PB](
     replace.size == 0 &&
     deactivate.size == 0 &&
     reactivate.size == 0
+
+  def filterKeys(f: A => Boolean) : Commit[A,B,PB] = {
+    copy(
+      put = put.filterKeys(f),
+      replace = replace.filterKeys(f),
+      deactivate = deactivate.filter(f),
+      reactivate = reactivate.filterKeys(f)
+    )
+  }
 }
 
 object Commit {
