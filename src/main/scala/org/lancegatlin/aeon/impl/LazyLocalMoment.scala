@@ -17,10 +17,10 @@ trait LazyLocalMoment[A,+B] extends
 
   override def findRecord(key: A) = active.get(key) orElse inactive.get(key)
 
-  override def filter(f: (A,Boolean) => Boolean): LazyLocalMoment[A,B] =
+  override def filterKeys(f: A => Boolean): LazyLocalMoment[A,B] =
     LazyLocalMoment(
-      calcActive = self.active.filterKeys({ k => f(k,true)}),
-      calcInactive = self.inactive.filterKeys({ k => f(k,true)})
+      calcActive = self.active.filterKeys(f),
+      calcInactive = self.inactive.filterKeys(f)
     )
 
   override lazy val toMap = active.map { case (key,record) =>

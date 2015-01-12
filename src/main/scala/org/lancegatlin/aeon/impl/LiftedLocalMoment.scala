@@ -16,8 +16,8 @@ trait LiftedLocalMoment[A,+B,+LM[AA,+BB] <: LocalMoment[AA,BB]] extends Moment[A
   override def findRecord(key: A) =
     local.findRecord(key).future
 
-  override def filter(f: (A, Boolean) => Boolean) =
-    local.filter(f).lift.future
+  override def filterKeys(f: A => Boolean) =
+    local.filterKeys(f).lift.future
 
 
   override def active = local.active.future

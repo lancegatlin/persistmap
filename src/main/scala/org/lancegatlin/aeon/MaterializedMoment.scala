@@ -17,10 +17,10 @@ trait MaterializedMoment[A,+B] extends
   override def findVersion(key: A) = active.get(key).map(_.version)
 
 
-  override def filter(f: (A,Boolean) => Boolean): MaterializedMoment[A, B] = {
+  override def filterKeys(f: A => Boolean): MaterializedMoment[A, B] = {
     MaterializedMoment(
-      active = active.filterKeys({ k => f(k,true) }),
-      inactive = inactive.filterKeys({ k => f(k,false) })
+      active = active.filterKeys(f),
+      inactive = inactive.filterKeys(f)
     )
   }
 

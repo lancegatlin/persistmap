@@ -11,7 +11,7 @@ trait LocalMoment[A,+B] {
   def findVersion(key: A) : Option[Long]
   def findRecord(key: A) : Option[Record[B]]
 
-  def filter(f: (A,Boolean) => Boolean) : LocalMoment[A,B]
+  def filterKeys(f: A => Boolean) : LocalMoment[A,B]
 
   def active : Map[A,Record.Active[B]]
   def inactive : Map[A,Record.Inactive[B]]
