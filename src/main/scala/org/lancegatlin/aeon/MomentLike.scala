@@ -11,7 +11,7 @@ trait Moment[A,+B] extends Projection[A,B] {
   def inactive : Projection[A,Record.Inactive]
   def all : Projection[A,Record[B]]
 
-  def materialize : Future[MaterializedMoment[A,B]]
+  def materialize() : Future[MaterializedMoment[A,B]]
 }
 
 object Moment {

@@ -40,7 +40,7 @@ trait LiftedLocalMoment[A,+B,+LM <: LocalMoment[A,B]] extends Moment[A,B] with L
   override lazy val inactive = LiftedMapProjection(self.local.inactive)
   override lazy val all = LiftedMapProjection(self.local.all)
 
-  override def materialize = local.materialize.future
+  override def materialize() = local.materialize.future
 }
 
 object LiftedLocalMoment {

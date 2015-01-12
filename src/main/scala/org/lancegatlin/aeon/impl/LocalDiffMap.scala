@@ -79,16 +79,16 @@ class LocalDiffMap[A,B,PB](
     def local: LocalMoment[A,B]
 
     override def checkout(): Future[LocalDiffMap[A,B,PB]] = {
-      for {
-        materializedMoment <- materialize
-      } yield {
+      val now = Instant.now()
+      val materializedMoment = local.materialize
+      Future.successful {
         new LocalDiffMap(
           // TODO: last is super inefficient
-          _baseAeon = Aeon(oomCommit.last._2.when,oomCommit.head._2.when),
-          _baseState = MaterializedMoment(
-            active = materializedMoment.active,
-            inactive = materializedMoment.inactive
+          _baseAeon = Aeon(
+            oomCommit.lastOption.map(_._2.when).getOrElse(now),
+            oomCommit.headOption.map(_._2.when).getOrElse(now)
           ),
+          _baseState = materializedMoment,
           zomBaseCommit = Nil
         )
       }
@@ -254,10 +254,10 @@ class LocalDiffMap[A,B,PB](
     oldMoment: OldMoment
   ) extends SuperNowMoment with LiftedLocalMoment[A,B,LocalMoment[A,B]] {
 
+    def local = oldMoment.local
+
     override def filterKeys(f: (A) => Boolean): NowMoment =
       NowMoment(oldMoment.filterKeys(f))
-
-    def local = oldMoment.local
 
     def setState[X](
       f: OldMoment => Future[(Checkout[A],List[(Commit[A,B,PB],Metadata)],X)]
@@ -500,8 +500,7 @@ class LocalDiffMap[A,B,PB](
       loop()
     }
 
-    override def checkout(): Future[LocalDiffMap[A,B,PB]] =
-      mostRecentOldMoment.checkout()
+    override def checkout(): Future[LocalDiffMap[A,B,PB]] = oldMoment.checkout()
   }
 
   override def now = NowMoment(mostRecentOldMoment)
