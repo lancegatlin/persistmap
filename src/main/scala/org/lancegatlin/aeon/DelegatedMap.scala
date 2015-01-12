@@ -12,7 +12,7 @@ abstract class DelegatedMap[A,+B] extends AbstractMap[A,B] with DefaultMap[A,B] 
   def get(key: A) = delegate.get(key)
 }
 
-trait DelegatedUnionMap2[A,+B] extends AbstractMap[A,B] with DefaultMap[A,B] { self =>
+abstract class DelegatedUnionMap2[A,+B] extends AbstractMap[A,B] with DefaultMap[A,B] { self =>
   def delegate1: Map[A,B]
   def delegate2: Map[A,B]
 

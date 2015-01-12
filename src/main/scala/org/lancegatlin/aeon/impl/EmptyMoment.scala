@@ -19,7 +19,7 @@ object EmptyMoment extends Moment[Any,Nothing] with DelegatedProjection[Any,Noth
   val inactive = EmptyProjection
   val all = EmptyProjection
 
-  override def filterKeys(f: Any => Boolean) : Moment[Any,Nothing] = this
+  override def filterKeys(f: Any => Boolean) = this
 
   override val materialize: Future[MaterializedMoment[Any, Nothing]] =
     MaterializedMoment.empty[Any,Nothing].future
