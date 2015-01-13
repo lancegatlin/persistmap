@@ -101,66 +101,80 @@ class LocalDiffMap[A,B,PB](
       BaseMoment(local.filterKeys(f))
   }
 
+
   case class LazyOldMoment(
     aeon: Aeon,
     oomCommit: List[(Commit[A,B,PB],Metadata)],
-    prev: OldMoment
+    optFilterKeys: Option[A => Boolean] = None
   ) extends OldMoment with LiftedLocalMoment[A,B,LazyLocalMoment[A,B]] {
 
     override def filterKeys(f: (A) => Boolean): OldMoment =
-      copy(
-        oomCommit = oomCommit.flatMap { case (commit,metadata) =>
-          val newCommit = commit.filterKeys(f)
-          if(newCommit.isNoChange == false) {
-            Some((newCommit,metadata))
-          } else {
-            None
-          }
-        },
-        prev = prev.filterKeys(f)
-      )
+      copy(optFilterKeys = Some(f))
 
-    val local = LazyLocalMoment(
-      calcActive = {
-        val builder = mutable.Map[A,Record.Active[B]](prev.local.active.toSeq:_*)
-        oomCommit.foreach { case (commit,_) =>
-          commit.put.foreach { case (key,value) =>
-            builder.put(key,Record(value))
-          }
-          commit.replace.foreach { case (key,patch) =>
-            // Note: not closing over builder here so that it can be discarded
-            lazy val record = prev.local.active(key)
-            lazy val calcValue = record.value applyPatch patch
-            lazy val calcVersion = record.version + 1
-            builder.put(key, Record.lazyApply(
-              calcValue = calcValue,
-              calcVersion = calcVersion
-            ))
-          }
-          commit.deactivate.foreach(builder.remove)
-          commit.reactivate.foreach { case (key,value) =>
-            lazy val record = prev.local.inactive(key)
-            lazy val calcVersion = record.version + 1
-            builder.put(key, Record.lazyApply(
-              calcValue = value,
-              calcVersion = calcVersion
-            ))
-          }
+    // Note: prev is not saved to prevent holding long references to previous
+    // old moments - don't close over prev as a val!
+    def prev = old(aeon.start.minus(1))
+
+    val local = {
+      def maybeFilterKeys[C](m:Map[A,C]) : Map[A,C] = {
+        optFilterKeys match {
+          case Some(f) => m.filterKeys(f)
+          case None => m
         }
-        builder.toMap
-      },
-      calcInactive = {
-        val builder = mutable.Map[A,Record.Inactive](prev.local.inactive.toSeq:_*)
-        oomCommit.foreach { case (commit,_) =>
-          commit.reactivate.foreach { case (k,_) => builder.remove(k) }
-          commit.deactivate.foreach { key =>
-            val record = prev.local.active(key)
-            builder.put(key, Record.Inactive(record.version + 1))
-          }
-        }
-        builder.toMap
       }
-    )
+      LazyLocalMoment(
+        calcActive = {
+          // Note: not closing over builder so that it can be discarded
+          val builder = mutable.Map[A,Record.Active[B]](
+            maybeFilterKeys(prev.local.active).toSeq:_*
+          )
+          oomCommit.foreach { case (rawCommit,_) =>
+            val commit = {
+              optFilterKeys match {
+                case Some(f) => rawCommit.filterKeys(f)
+                case None => rawCommit
+              }
+            }
+            commit.put.foreach { case (key,value) =>
+              builder.put(key,Record(value))
+            }
+            commit.replace.foreach { case (key,patch) =>
+              lazy val record = prev.local.active(key)
+              lazy val calcValue = record.value applyPatch patch
+              lazy val calcVersion = record.version + 1
+              builder.put(key, Record.lazyApply(
+                calcValue = calcValue,
+                calcVersion = calcVersion
+              ))
+            }
+            commit.deactivate.foreach(builder.remove)
+            commit.reactivate.foreach { case (key,value) =>
+              lazy val record = prev.local.inactive(key)
+              lazy val calcVersion = record.version + 1
+              builder.put(key, Record.lazyApply(
+                calcValue = value,
+                calcVersion = calcVersion
+              ))
+            }
+          }
+          builder.toMap
+        },
+        calcInactive = {
+          // Note: not closing over builder so that it can be discarded
+          val builder = mutable.Map[A,Record.Inactive](
+            maybeFilterKeys(prev.local.inactive).toSeq:_*
+          )
+          oomCommit.foreach { case (commit,_) =>
+            commit.reactivate.foreach { case (k,_) => builder.remove(k) }
+            commit.deactivate.foreach { key =>
+              val record = prev.local.active(key)
+              builder.put(key, Record.Inactive(record.version + 1))
+            }
+          }
+          builder.toMap
+        }
+      )
+    }
   }
 
   case class EmptyOldMoment(
@@ -212,11 +226,10 @@ class LocalDiffMap[A,B,PB](
             } else {
               val newMoment = LazyOldMoment(
                 aeon = Aeon(
-                  start = currentMoment.aeon.end,
+                  start = currentMoment.aeon.end.plus(1),
                   end = Instant.now()
                 ),
-                oomCommit = oomCommit,
-                prev = currentMoment
+                oomCommit = oomCommit
               )
               def innerLoop(lastEntry: java.util.Map.Entry[Long,OldMoment]) : Future[X] = {
                 // Note: need synchronized here to ensure no new states are inserted
@@ -256,7 +269,7 @@ class LocalDiffMap[A,B,PB](
     }
 
     def canCommit(checkout: Checkout[A], moment: OldMoment) : Boolean = {
-      // Check if any of commit's checkout verions changed
+      // Check if any of commit's checkout versions changed
       checkout.forall { case (key,version) =>
         moment.local.all.get(key).exists(_.version == version)
       }
@@ -423,8 +436,7 @@ class LocalDiffMap[A,B,PB](
                   start = currentMoment.aeon.end,
                   end = Instant.now()
                 ),
-                oomCommit = zomCommit,
-                prev = lastEntry.getValue
+                oomCommit = zomCommit
               )
               val nextAeon = Instant.now.getMillis
               val isSuccess =
