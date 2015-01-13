@@ -1,15 +1,13 @@
 package org.lancegatlin.aeon.impl
 
 import java.util.concurrent.ConcurrentSkipListMap
-
+import scala.collection.mutable
+import scala.concurrent.{ExecutionContext, Future}
+import s_mach.concurrent._
+import s_mach.datadiff._
 import org.joda.time.Instant
 import org.lancegatlin.aeon._
 import org.lancegatlin.aeon.diffmap.{DiffMap, Commit}
-import s_mach.concurrent._
-import s_mach.datadiff._
-
-import scala.collection.mutable
-import scala.concurrent.{ExecutionContext, Future}
 
 object LocalDiffMap {
   def apply[A,B,PB](kv:(A,B)*)(implicit
@@ -23,7 +21,6 @@ object LocalDiffMap {
       zomBaseCommit = Nil
     )
   }
-
 }
 
 class LocalDiffMap[A,B,PB](
@@ -164,70 +161,6 @@ class LocalDiffMap[A,B,PB](
       }
     )
   }
-
-//  case class MaterializedOldMoment(
-//    oomCommit: List[(Commit[A,B,PB],Metadata)],
-//    prev: OldMoment
-//  ) extends OldMoment with LiftedLocalMoment[A,B,MaterializedMoment] {
-//    val local = MaterializedMoment(
-//      active = {
-//        val builder = mutable.Map[A,Record.Materialized[B]](
-//          prev.local.active
-//            .iterator
-//            .map { case (key,record) => (key,record.materialize) }
-//            .toSeq:_*
-//        )
-//        oomCommit.foreach { case (commit,_) =>
-//          commit.put.foreach { case (key,value) =>
-//            builder.put(key,Record(value))
-//          }
-//          commit.replace.foreach { case (key,patch) =>
-//            val record = prev.local.findRecord(key).get
-//            val value = record.value applyPatch patch
-//            val version = record.version + 1
-//            builder.put(key, Record(
-//              value = value,
-//              version = version
-//            ))
-//          }
-//          commit.deactivate.foreach(builder.remove)
-//          commit.reactivate.foreach { key =>
-//            val record = prev.local.findRecord(key).get
-//            val materializedRecord = record.materialize
-//            builder.put(
-//              key,
-//              materializedRecord.copy(
-//                version = materializedRecord.version + 1
-//              )
-//            )
-//          }
-//        }
-//        builder.toMap
-//      },
-//      inactive = {
-//        val builder = mutable.Map[A,Record.Materialized[B]](
-//          prev.local.inactive
-//            .iterator
-//            .map { case (key,record) => (key,record.materialize) }
-//            .toSeq:_*
-//        )
-//        oomCommit.foreach { case (commit,_) =>
-//          commit.reactivate.foreach(builder.remove)
-//            commit.deactivate.foreach { key =>
-//              val record = prev.local.findRecord(key).get
-//              val materializedRecord = record.materialize
-//              builder.put(
-//                key,
-//                materializedRecord.copy(
-//                  version = materializedRecord.version + 1
-//                )
-//              )
-//            }
-//          }
-//        builder.toMap
-//      }
-//    )
-//  }
 
   case class EmptyOldMoment(
     // Note: using case class args to prevent init order NPE

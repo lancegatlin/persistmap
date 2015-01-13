@@ -1,6 +1,6 @@
 package org.lancegatlin.aeon
 
-//import org.lancegatlin.aeon.impl.LiftedLocalMoment
+import org.lancegatlin.aeon.impl.LiftedLocalMoment
 
 trait MaterializedMoment[A,+B] extends LocalMoment[A,B] {
   override def filterKeys(f: (A) => Boolean): MaterializedMoment[A,B]
@@ -8,7 +8,7 @@ trait MaterializedMoment[A,+B] extends LocalMoment[A,B] {
   override def active : Map[A,Record.Materialized[B]]
 
   override def materialize = this
-  lazy val asMoment : Moment[A,B] = ??? //LiftedLocalMoment[A,B,MaterializedMomentLike](this)
+  lazy val asMoment : Moment[A,B] = LiftedLocalMoment[A,B,MaterializedMoment[A,B]](this)
 }
 
 object MaterializedMoment {

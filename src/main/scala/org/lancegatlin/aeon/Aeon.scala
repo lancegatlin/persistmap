@@ -2,6 +2,10 @@ package org.lancegatlin.aeon
 
 import org.joda.time.{Interval, Instant}
 
+// Note: using this since Interval creating an interval discards the Instant
+// instances. Round trip from (Instant,Instant) to Interval to
+// (Instant,Instant) means throwing away original instances, creating temp
+// Interval and creating two new Instant instances
 case class Aeon(
   start: Instant,
   end: Instant

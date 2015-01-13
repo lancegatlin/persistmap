@@ -3,7 +3,6 @@ package org.lancegatlin.aeon.impl
 import org.lancegatlin.aeon._
 
 trait LazyLocalMoment[A,+B] extends LocalMoment[A,B] { self =>
-
   override lazy val materialize = {
     MaterializedMoment(
       active = active.map { case (key,record) => (key, record.materialize) }.toMap,

@@ -55,9 +55,17 @@ class CommitBuilder[A,B,PB] {
     val replace = _replace.result()
     val deactivate = _deactivate.result()
     val reactivate = _reactivate.result()
-    require(replace.keySet.forall(checkout.contains),"All changed ids must be checked out")
-    require(deactivate.forall(checkout.contains),"All deactivated ids must be checked out")
-    require(reactivate.forall { case (k,_) => checkout.contains(k) },"All reactivated ids must be checked out")
+    require(
+      replace.keySet.forall(checkout.contains),
+      "All changed ids must be checked out"
+    )
+    require(
+      deactivate.forall(checkout.contains),
+      "All deactivated ids must be checked out"
+    )
+    require(
+      reactivate.forall { case (k,_) => checkout.contains(k) },
+      "All reactivated ids must be checked out")
 
     (
       checkout,
