@@ -8,6 +8,8 @@ trait AeonMap[A,B] {
 
   trait OldMoment extends Moment[A,B] {
     override def filterKeys(f: (A) => Boolean): OldMoment
+
+    def aeon: Aeon
   }
 
   trait NowMoment extends OldMoment {
@@ -32,6 +34,9 @@ trait AeonMap[A,B] {
       f: Moment[A,B] => Future[(B,X)],
       g: Exception => X
     )(implicit metadata:Metadata) : Future[X]
+
+    // def append[C](key: A, value: C)(implicit monoid: Monoid[B[C]])
+    // def put(value: B)(implicit uuidGen:UUIDGenerator[A])
   }
 
   trait FutureMoment {

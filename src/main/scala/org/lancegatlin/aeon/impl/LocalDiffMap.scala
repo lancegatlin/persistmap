@@ -48,6 +48,7 @@ class LocalDiffMap[A,B,PB](
   def print : String = {
     import scala.collection.JavaConverters._
     val sb = new StringBuilder
+    sb.append(s"base.aeon=${base.aeon}\n")
     sb.append("whenToOldState\n")
     whenToOldState.descendingMap().entrySet().asScala.foreach { entry =>
       sb.append(s"${new Instant(entry.getKey)} => ${entry.getValue}\n")
@@ -81,10 +82,7 @@ class LocalDiffMap[A,B,PB](
       Future.successful {
         new LocalDiffMap(
           // TODO: last is super inefficient
-          _baseAeon = Aeon(
-            oomCommit.lastOption.map(_._2.when).getOrElse(now),
-            oomCommit.headOption.map(_._2.when).getOrElse(now)
-          ),
+          _baseAeon = aeon,
           _baseState = materializedMoment,
           zomBaseCommit = Nil
         )
@@ -95,6 +93,8 @@ class LocalDiffMap[A,B,PB](
   case class BaseMoment(
     local: MaterializedMoment[A,B]
   ) extends OldMoment with LiftedLocalMoment[A,B,MaterializedMoment[A,B]] {
+    override def aeon = _baseAeon
+
     override def oomCommit = Nil
 
     override def filterKeys(f: A => Boolean) =
@@ -102,13 +102,14 @@ class LocalDiffMap[A,B,PB](
   }
 
   case class LazyOldMoment(
+    aeon: Aeon,
     oomCommit: List[(Commit[A,B,PB],Metadata)],
     prev: OldMoment
   ) extends OldMoment with LiftedLocalMoment[A,B,LazyLocalMoment[A,B]] {
 
     override def filterKeys(f: (A) => Boolean): OldMoment =
-      LazyOldMoment(
-        oomCommit.flatMap { case (commit,metadata) =>
+      copy(
+        oomCommit = oomCommit.flatMap { case (commit,metadata) =>
           val newCommit = commit.filterKeys(f)
           if(newCommit.isNoChange == false) {
             Some((newCommit,metadata))
@@ -116,7 +117,7 @@ class LocalDiffMap[A,B,PB](
             None
           }
         },
-        prev.filterKeys(f)
+        prev = prev.filterKeys(f)
       )
 
     val local = LazyLocalMoment(
@@ -167,7 +168,10 @@ class LocalDiffMap[A,B,PB](
     local:LocalMoment[A,B] = LocalMoment.empty[A,B],
     oomCommit: List[(Commit[A,B,PB],Metadata)] = Nil
   ) extends OldMoment with LiftedLocalMoment[A,B,LocalMoment[A,B]] {
-
+    val aeon = Aeon(
+      beginOfTime,
+      _baseAeon.start
+    )
     override def filterKeys(f: A => Boolean) = this
   }
 
@@ -186,7 +190,7 @@ class LocalDiffMap[A,B,PB](
   case class NowMoment(
     oldMoment: OldMoment
   ) extends SuperNowMoment with LiftedLocalMoment[A,B,LocalMoment[A,B]] {
-
+    def aeon = oldMoment.aeon
     def local = oldMoment.local
 
     override def filterKeys(f: (A) => Boolean): NowMoment =
@@ -206,7 +210,14 @@ class LocalDiffMap[A,B,PB](
             if(oomCommit.isEmpty) {
               x.future
             } else {
-              val newMoment = LazyOldMoment(oomCommit, currentMoment)
+              val newMoment = LazyOldMoment(
+                aeon = Aeon(
+                  start = currentMoment.aeon.end,
+                  end = Instant.now()
+                ),
+                oomCommit = oomCommit,
+                prev = currentMoment
+              )
               def innerLoop(lastEntry: java.util.Map.Entry[Long,OldMoment]) : Future[X] = {
                 // Note: need synchronized here to ensure no new states are inserted
                 // during check-execute below -- lock time has been minimized
@@ -392,9 +403,9 @@ class LocalDiffMap[A,B,PB](
     )(implicit metadata: Metadata) : Future[X] = {
       def loop() : Future[X] = {
         val lastEntry = whenToOldState.lastEntry
-        val nowMoment = whenToOldState.lastEntry.getValue
+        val currentMoment = whenToOldState.lastEntry.getValue
         for {
-          (other, x) <- f(nowMoment)
+          (other, x) <- f(currentMoment)
           otherBase = other.base
           otherActive <- otherBase.active.toMap
           otherInactive <- otherBase.inactive.toMap
@@ -405,9 +416,16 @@ class LocalDiffMap[A,B,PB](
               (otherInactive.map { case (key,record) => (key,record.version)})
             if (
               zomCommit.nonEmpty &&
-              canCommit(checkout.toMap, nowMoment)
+              canCommit(checkout.toMap, currentMoment)
             ) {
-              val nextMoment = LazyOldMoment(zomCommit,lastEntry.getValue)
+              val nextMoment = LazyOldMoment(
+                aeon = Aeon(
+                  start = currentMoment.aeon.end,
+                  end = Instant.now()
+                ),
+                oomCommit = zomCommit,
+                prev = lastEntry.getValue
+              )
               val nextAeon = Instant.now.getMillis
               val isSuccess =
                 whenToOldState.synchronized {
