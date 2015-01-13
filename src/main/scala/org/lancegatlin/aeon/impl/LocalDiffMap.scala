@@ -113,7 +113,7 @@ class LocalDiffMap[A,B,PB](
 
     // Note: prev is not saved to prevent holding long references to previous
     // old moments - don't close over prev as a val!
-    def prev = old(aeon.start.minus(1))
+    def calcPrev = old(aeon.start.minus(1))
 
     val local = {
       def maybeFilterKeys[C](m:Map[A,C]) : Map[A,C] = {
@@ -126,7 +126,7 @@ class LocalDiffMap[A,B,PB](
         calcActive = {
           // Note: not closing over builder so that it can be discarded
           val builder = mutable.Map[A,Record.Active[B]](
-            maybeFilterKeys(prev.local.active).toSeq:_*
+            maybeFilterKeys(calcPrev.local.active).toSeq:_*
           )
           oomCommit.foreach { case (rawCommit,_) =>
             val commit = {
@@ -139,7 +139,7 @@ class LocalDiffMap[A,B,PB](
               builder.put(key,Record(value))
             }
             commit.replace.foreach { case (key,patch) =>
-              lazy val record = prev.local.active(key)
+              lazy val record = calcPrev.local.active(key)
               lazy val calcValue = record.value applyPatch patch
               lazy val calcVersion = record.version + 1
               builder.put(key, Record.lazyApply(
@@ -149,7 +149,7 @@ class LocalDiffMap[A,B,PB](
             }
             commit.deactivate.foreach(builder.remove)
             commit.reactivate.foreach { case (key,value) =>
-              lazy val record = prev.local.inactive(key)
+              lazy val record = calcPrev.local.inactive(key)
               lazy val calcVersion = record.version + 1
               builder.put(key, Record.lazyApply(
                 calcValue = value,
@@ -162,12 +162,12 @@ class LocalDiffMap[A,B,PB](
         calcInactive = {
           // Note: not closing over builder so that it can be discarded
           val builder = mutable.Map[A,Record.Inactive](
-            maybeFilterKeys(prev.local.inactive).toSeq:_*
+            maybeFilterKeys(calcPrev.local.inactive).toSeq:_*
           )
           oomCommit.foreach { case (commit,_) =>
             commit.reactivate.foreach { case (k,_) => builder.remove(k) }
             commit.deactivate.foreach { key =>
-              val record = prev.local.active(key)
+              val record = calcPrev.local.active(key)
               builder.put(key, Record.Inactive(record.version + 1))
             }
           }
