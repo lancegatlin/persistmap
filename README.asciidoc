@@ -6,6 +6,8 @@ v2,02-Jan-2015
 
 *UNDER CONSTRUCTION*
 
+Work on this has moved to https://github.com/S-Mach/aeondb
+
 An experimental asynchronous, immutable and partially persistent
 (http://en.wikipedia.org/wiki/Persistent_data_structure) Map
 that reifies time. The past may be queried but changes may only be made to "now"
