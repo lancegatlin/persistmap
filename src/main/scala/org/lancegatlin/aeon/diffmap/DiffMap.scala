@@ -6,6 +6,13 @@ import s_mach.datadiff.DataDiff
 
 import scala.concurrent.Future
 
+object DiffMap {
+  sealed trait Event[A,B,PB]
+  case class OnCommit[A,B,PB](
+    oomCommit: List[(Commit[A,B,PB],Metadata)]
+  ) extends Event[A,B,PB]
+}
+
 // Note: B/PB must be invariant here b/c of DataDiff type-class
 trait DiffMap[A,B,PB] extends AeonMap[A,B] {
 
@@ -45,4 +52,7 @@ trait DiffMap[A,B,PB] extends AeonMap[A,B] {
   override def now : NowMoment
 
   def zomCommit: Future[List[(Commit[A,B,PB], Metadata)]]
+
+  protected def emitEvents : Boolean = false
+  protected def onEvent(e: DiffMap.Event[A,B,PB]) : Unit = { }
 }

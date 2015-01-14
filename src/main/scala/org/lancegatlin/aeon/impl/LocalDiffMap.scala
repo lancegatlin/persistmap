@@ -1,6 +1,6 @@
 package org.lancegatlin.aeon.impl
 
-import java.util.concurrent.ConcurrentSkipListMap
+import java.util.concurrent.{ConcurrentLinkedQueue, ConcurrentSkipListMap}
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 import s_mach.concurrent._
@@ -31,6 +31,7 @@ class LocalDiffMap[A,B,PB](
   val executionContext: ExecutionContext,
   val dataDiff:DataDiff[B,PB]
 ) extends DiffMap[A,B,PB] { self =>
+  import DiffMap._
 
   type SuperOldMoment = super.OldMoment
   type SuperNowMoment = super.NowMoment
@@ -224,7 +225,7 @@ class LocalDiffMap[A,B,PB](
             if(oomCommit.isEmpty) {
               x.future
             } else {
-              val newMoment = LazyOldMoment(
+              val nextMoment = LazyOldMoment(
                 aeon = Aeon(
                   start = currentMoment.aeon.end.plus(1),
                   end = Instant.now()
@@ -234,16 +235,7 @@ class LocalDiffMap[A,B,PB](
               def innerLoop(lastEntry: java.util.Map.Entry[Long,OldMoment]) : Future[X] = {
                 // Note: need synchronized here to ensure no new states are inserted
                 // during check-execute below -- lock time has been minimized
-                val isSuccess =
-                  whenToOldState.synchronized {
-                    if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
-                      whenToOldState.put(nextAeon.getMillis, newMoment)
-                      true
-                    } else {
-                      false
-                    }
-                  }
-                if(isSuccess) {
+                if(compareAndSetNow(lastEntry,nextMoment)) {
                   x.future
                 } else {
                   // State changed during computation
@@ -438,17 +430,7 @@ class LocalDiffMap[A,B,PB](
                 ),
                 oomCommit = zomCommit
               )
-              val nextAeon = Instant.now.getMillis
-              val isSuccess =
-                whenToOldState.synchronized {
-                  if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
-                    whenToOldState.put(nextAeon, nextMoment)
-                    true
-                  } else {
-                    false
-                  }
-                }
-              if (isSuccess) {
+              if (compareAndSetNow(lastEntry, nextMoment)) {
                 x.future
               } else {
                 loop()
@@ -466,6 +448,45 @@ class LocalDiffMap[A,B,PB](
     override def checkout(): Future[LocalDiffMap[A,B,PB]] = oldMoment.checkout()
   }
 
+  def publishEvents() : Unit = {
+    def loop() : Unit ={
+      eventQueue.poll() match {
+        case e@OnCommit(_) =>
+          onEvent(e)
+          loop()
+        case _ =>
+      }
+    }
+    loop()
+  }
+  
+  def compareAndSetNow(
+    lastEntry: java.util.Map.Entry[Long,OldMoment],
+    nextMoment: LazyOldMoment
+  ): Boolean = {
+    val nextAeon = Instant.now.getMillis
+    val isSuccess =
+      whenToOldState.synchronized {
+        if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
+          whenToOldState.put(nextAeon, nextMoment)
+          if(emitEvents) {
+            eventQueue.offer(OnCommit(nextMoment.oomCommit))
+          }
+          true
+        } else {
+          false
+        }
+      }
+    if (isSuccess) {
+      if(emitEvents) {
+        Future { publishEvents() }.background
+      }
+      true
+    } else {
+      false
+    }
+  }
+  
   override def now = NowMoment(mostRecentOldMoment)
 
   case class FutureMomentEx(
@@ -523,4 +544,6 @@ class LocalDiffMap[A,B,PB](
       }
     } yield result
   }
+
+  lazy val eventQueue = new ConcurrentLinkedQueue[Event[A,B,PB]]()
 }
