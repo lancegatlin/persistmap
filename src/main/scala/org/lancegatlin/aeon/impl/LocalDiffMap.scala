@@ -82,7 +82,6 @@ class LocalDiffMap[A,B,PB](
       val materializedMoment = local.materialize
       Future.successful {
         new LocalDiffMap(
-          // TODO: last is super inefficient
           _baseAeon = aeon,
           _baseState = materializedMoment,
           zomBaseCommit = Nil
@@ -211,8 +210,10 @@ class LocalDiffMap[A,B,PB](
     override def filterKeys(f: (A) => Boolean): NowMoment =
       NowMoment(oldMoment.filterKeys(f))
 
-    def setState[X](
-      f: OldMoment => Future[(Checkout[A],List[(Commit[A,B,PB],Metadata)],X)]
+    // Note: need setState for f: OldMoment => (commitFold is Moment[A,B] => ...)
+    def _commitFold[X](
+      f: OldMoment => Future[(Checkout[A],List[(Commit[A,B,PB],Metadata)],X)],
+      g: Exception => X
     ) : Future[X] = {
       def loop() : Future[X] = {
         val lastEntry = whenToOldState.lastEntry
@@ -221,38 +222,42 @@ class LocalDiffMap[A,B,PB](
         for {
           (checkout,oomCommit, x) <- f(currentMoment)
           result <- {
-//            val updatedMetadata = metadata.copy(when = nextAeon)
-            if(oomCommit.isEmpty) {
-              x.future
-            } else {
-              val nextMoment = LazyOldMoment(
-                aeon = Aeon(
-                  start = currentMoment.aeon.end.plus(1),
-                  end = Instant.now()
-                ),
-                oomCommit = oomCommit
-              )
-              def innerLoop(lastEntry: java.util.Map.Entry[Long,OldMoment]) : Future[X] = {
-                // Note: need synchronized here to ensure no new states are inserted
-                // during check-execute below -- lock time has been minimized
-                if(compareAndSetNow(lastEntry,nextMoment)) {
-                  x.future
-                } else {
-                  // State changed during computation
-                  val updatedLastEntry = whenToOldState.lastEntry
-                  val updatedState = updatedLastEntry.getValue
-                  if(canCommit(checkout, updatedState)) {
-                    // If checkouts have not changed then just retry without
-                    // recomputing commit
-                    innerLoop(updatedLastEntry)
+            val missingCheckout = calcMissingCheckout(checkout,currentMoment)
+            if(missingCheckout.isEmpty) {
+              if(oomCommit.nonEmpty) {
+                val nextMoment = LazyOldMoment(
+                  aeon = Aeon(
+                    start = currentMoment.aeon.end.plus(1),
+                    end = Instant.now()
+                  ),
+                  oomCommit = oomCommit
+                )
+                def innerLoop(lastEntry: java.util.Map.Entry[Long,OldMoment]) : Future[X] = {
+                  // Note: need synchronized here to ensure no new states are inserted
+                  // during check-execute below -- lock time has been minimized
+                  if(compareAndSetNowMoment(lastEntry,nextMoment)) {
+                    x.future
                   } else {
-                    // At least one checkout changed, have to recompute commit
-                    loop()
+                    // State changed during computation
+                    val updatedLastEntry = whenToOldState.lastEntry
+                    val updatedState = updatedLastEntry.getValue
+                    if(canCommit(checkout, updatedState)) {
+                      // If checkouts have not changed then just retry without
+                      // recomputing commit
+                      innerLoop(updatedLastEntry)
+                    } else {
+                      // At least one checkout changed, have to recompute commit
+                      loop()
+                    }
                   }
-                }
 
+                }
+                innerLoop(lastEntry)
+              } else {
+                g(new RuntimeException("Empty commit")).future
               }
-              innerLoop(lastEntry)
+            } else {
+              g(new RuntimeException(s"Missing keys: ${missingCheckout.mkString(",")}")).future
             }
           }
         } yield result
@@ -260,10 +265,50 @@ class LocalDiffMap[A,B,PB](
       loop()
     }
 
+    def calcMissingCheckout(
+      checkout: Checkout[A],
+      currentMoment: OldMoment
+    ) : Iterable[A] = {
+      checkout
+        .filterNot { case (key,version) =>
+          currentMoment.local.active.contains(key) ||
+          currentMoment.local.inactive.contains(key)
+        }
+        .keys
+    }
+
     def canCommit(checkout: Checkout[A], moment: OldMoment) : Boolean = {
       // Check if any of commit's checkout versions changed
       checkout.forall { case (key,version) =>
-        moment.local.all.get(key).exists(_.version == version)
+        val record =
+          moment.local.active.get(key) match {
+            case Some(_record) => _record
+            case None => moment.local.inactive(key)
+          }
+        record.version == version
+      }
+    }
+
+    def calcCheckoutVersionMismatch(
+      checkout: Checkout[A],
+      currentMoment: OldMoment
+    ) : Iterable[(A,Long,Long)] = {
+      // Note: assumed here that all checkout keys exist
+      checkout.flatMap { case (key,expectedVersion) =>
+        val record =
+          currentMoment.local.active.get(key) match {
+            case Some(_record) => _record
+            case None =>
+              // Note: if record isn't active is has to be inactive since
+              // checkouts are confirmed to exist
+              currentMoment.local.inactive(key)
+          }
+
+        if(record.version == expectedVersion) {
+          None
+        } else {
+          Some((key,expectedVersion,record.version))
+        }
       }
     }
 
@@ -281,7 +326,7 @@ class LocalDiffMap[A,B,PB](
       f: Moment[A,B] => Future[(B,X)],
       g: Exception => X
     )(implicit metadata:Metadata) : Future[X] = {
-      setState { nowMoment =>
+      _commitFold({ nowMoment =>
         if(
           nowMoment.local.active.contains(key) == false &&
           nowMoment.local.inactive.contains(key) == false
@@ -299,7 +344,7 @@ class LocalDiffMap[A,B,PB](
             g(new IllegalArgumentException(s"Key $key already exists!"))
           ).future
         }
-      }
+      },g)
     }
 
 
@@ -317,7 +362,7 @@ class LocalDiffMap[A,B,PB](
       f: Moment[A,B] => Future[(B,X)],
       g: Exception => X
     )(implicit metadata:Metadata) : Future[X] = {
-      setState { nowMoment =>
+      _commitFold({ nowMoment =>
         if(
           nowMoment.local.active.contains(key) ||
           nowMoment.local.inactive.contains(key)
@@ -339,13 +384,13 @@ class LocalDiffMap[A,B,PB](
             g(new IllegalArgumentException(s"Key $key does not exist!"))
           ).future
         }
-      }
+      },g)
     }
 
     override def deactivate(
       key: A
     )(implicit metadata: Metadata) : Future[Boolean] = {
-      setState { nowMoment =>
+      _commitFold({ nowMoment =>
         nowMoment.local.active.get(key) match {
           case Some(record) =>
             val (checkout,commit) = CommitBuilder[A,B,PB]()
@@ -355,14 +400,14 @@ class LocalDiffMap[A,B,PB](
           case None =>
             (Checkout.empty[A,Long],Nil,false).future
         }
-      }
+      },{ _ => false })
     }
 
     override def reactivate(
       key: A,
       value: B
     )(implicit metadata: Metadata) : Future[Boolean] = {
-      setState { nowMoment =>
+      _commitFold({ nowMoment =>
         nowMoment.local.inactive.get(key) match {
           case Some(record) =>
             val (checkout,commit) = CommitBuilder[A,B,PB]()
@@ -372,7 +417,7 @@ class LocalDiffMap[A,B,PB](
           case None =>
             (Checkout.empty[A,Long],Nil, false).future
         }
-      }
+      }, { _ => false })
     }
 
     override def commit(
@@ -389,7 +434,7 @@ class LocalDiffMap[A,B,PB](
       f: Moment[A,B] => Future[(Checkout[A],List[(Commit[A,B,PB],Metadata)],X)],
       g: Exception => X
     ) : Future[X] = {
-      setState(f)
+      _commitFold(f,g)
     }
 
 
@@ -416,29 +461,39 @@ class LocalDiffMap[A,B,PB](
           otherInactive <- otherBase.inactive.toMap
           zomCommit <- other.zomCommit
           result <- {
-            val checkout =
-              (otherActive.map { case (key,record) => (key,record.version)}) ++
-              (otherInactive.map { case (key,record) => (key,record.version)})
-            if (
-              zomCommit.nonEmpty &&
-              canCommit(checkout.toMap, currentMoment)
-            ) {
-              val nextMoment = LazyOldMoment(
-                aeon = Aeon(
-                  start = currentMoment.aeon.end,
-                  end = Instant.now()
-                ),
-                oomCommit = zomCommit
-              )
-              if (compareAndSetNow(lastEntry, nextMoment)) {
-                x.future
+            if(zomCommit.nonEmpty) {
+              val checkout =
+                (otherActive.map { case (key,record) => (key,record.version)}) ++
+                (otherInactive.map { case (key,record) => (key,record.version)})
+              val missingCheckout = calcMissingCheckout(checkout,currentMoment)
+              if(missingCheckout.isEmpty) {
+                val checkoutVersionMismatch = calcCheckoutVersionMismatch(checkout, currentMoment)
+                if (checkoutVersionMismatch.isEmpty) {
+                  val nextMoment = LazyOldMoment(
+                    aeon = Aeon(
+                      start = currentMoment.aeon.end,
+                      end = Instant.now()
+                    ),
+                    oomCommit = zomCommit
+                  )
+                  if (compareAndSetNowMoment(lastEntry, nextMoment)) {
+                    x.future
+                  } else {
+                    loop()
+                  }
+                } else {
+                  g(new RuntimeException(s"Merge conflict: ${
+                    checkoutVersionMismatch.map { case (key,expectedVersion,version) =>
+                        s"(key=$key expectedVersion=$expectedVersion foundVersion=$version)"
+                    }.mkString(",")
+                  }")).future
+                }
               } else {
-                loop()
+                g(new RuntimeException(s"Missing keys: ${missingCheckout.mkString(",")}")).future
               }
             } else {
-              g(new RuntimeException("Merge conflict")).future
+              x.future
             }
-
           }
         } yield result
       }
@@ -460,15 +515,14 @@ class LocalDiffMap[A,B,PB](
     loop()
   }
   
-  def compareAndSetNow(
+  def compareAndSetNowMoment(
     lastEntry: java.util.Map.Entry[Long,OldMoment],
     nextMoment: LazyOldMoment
   ): Boolean = {
-    val nextAeon = Instant.now.getMillis
     val isSuccess =
       whenToOldState.synchronized {
         if (lastEntry.getKey == whenToOldState.lastEntry.getKey) {
-          whenToOldState.put(nextAeon, nextMoment)
+          whenToOldState.put(nextMoment.aeon.end.getMillis, nextMoment)
           if(emitEvents) {
             eventQueue.offer(OnCommit(nextMoment.oomCommit))
           }
